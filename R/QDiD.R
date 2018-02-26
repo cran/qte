@@ -64,6 +64,7 @@ compute.QDiD <- function(qp) {
         tau <- probs
 
         taut <- seq(0,1, length.out=nrow(treated.t))
+        taut <- seq(.01,.99,.01)
 
         uncondQTT <- TRUE
 
@@ -75,21 +76,12 @@ compute.QDiD <- function(qp) {
         condQ.untreated.tmin1.qr <- rq(this.formla, tau=tau,
                                        data=untreated.tmin1)
 
-        if (uncondQTT==TRUE) {
-            tau <- taut ##seq(0,1,length.out=nrow(untreated.t))
-        }
         condQ.untreated.t.qr <- rq(this.formla, tau=tau,
                                    data=untreated.t)
 
-        if (uncondQTT==TRUE) {
-            tau <- taut ##seq(0,1, length.out=nrow(treated.tmin1))
-        }
         condQ.treated.tmin1.qr <- rq(this.formla, tau=tau,
                                      data=treated.tmin1)
 
-        if (uncondQTT==TRUE) {
-            tau <- taut ##seq(0,1, length.out=nrow(treated.t))
-        }
         condQ.treated.t.qr <- rq(this.formla, tau=tau,
                                  data=treated.t)
 

@@ -1,7 +1,7 @@
 Package: qte
 Title: Quantile Treatment Effects
-Version: 1.2.0
-Date: 2017-06-14
+Version: 1.2.1
+Date: 2018-02-23
 Authors@R: person("Brantly", "Callaway", email="brantly.callaway@temple.edu",
   	          role=c("aut","cre"))
 Description: Provides several methods for computing the Quantile Treatment
@@ -13,15 +13,15 @@ Description: Provides several methods for computing the Quantile Treatment
     package).
 Depends: R (>= 2.10)
 Imports: Hmisc, parallel, quantreg, BMisc, formula.tools, ggplot2,
-        texreg
+        texreg, pbapply
 License: GPL-2
 LazyData: true
 RoxygenNote: 6.0.1
 Suggests: knitr, rmarkdown
 VignetteBuilder: knitr
 NeedsCompilation: no
-Packaged: 2017-06-19 13:40:40 UTC; brant
+Packaged: 2018-02-26 21:51:09 UTC; tug82594
 Author: Brantly Callaway [aut, cre]
 Maintainer: Brantly Callaway <brantly.callaway@temple.edu>
 Repository: CRAN
-Date/Publication: 2017-06-19 13:56:40 UTC
+Date/Publication: 2018-02-26 22:04:01 UTC
