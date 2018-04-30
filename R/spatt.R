@@ -60,8 +60,6 @@ compute.spatt <- function(qp) {
 
     } else {
 
-   
-    ##functionality with covariates is not yet implemented
         pscore.reg <- NULL #do this in case no covariates as we return this value
         if (!(is.null(x))) {
             ntt <- nrow(treated.t)
@@ -210,42 +208,46 @@ spatt <- function(formla, xformla=NULL, t, tmin1,
 
         att <- satt$ate
 
-        ##w0 <- (D-pscore)/(p*(1-pscore))
-        uwait <- (1-D)*pscore/(p*(1-pscore))
-        w0 <- D/p - uwait / mean(uwait)
+        ## new code
+        twait <- D/p
+        uwait1 <- (1-D)*pscore / (p*(1-pscore))
+        uwait <- uwait1 / mean(uwait1)
 
-        ## instead of bootstrap, compute these analytically
-        v1 <- w0*dy - att
+        psit <- twait*(dy - mean(twait*dy))
 
-        a <- apply(as.numeric((1-D)*g(x,thet)/(p*(1-pscore)^2)*dy)*x,2,mean)##apply((w0*g(x,thet))*x,2,mean) ##should be kx1
-        Aw <- g(x,thet)^2 / (G(x,thet)*(1-G(x,thet)))
-        A <- t(Aw*x)%*%x/n
-        s <- g(x,thet)*(D-G(x,thet)) / (G(x,thet)*(1-G(x,thet))) * x
-
-        v2 <- as.numeric(t(a)%*%solve(A)%*%t(s))  ##***is this right?***
-
-        V <- mean((v1-v2)^2)
-
-        SEobj <- SE(ate.se=sqrt(V)/sqrt(n))
-
-        ##qp$bootstrapiter <- TRUE
-
-        ##bootstrap the standard errors
-        ##SEobj <- bootstrap(qp, satt, compute.spatt)
-
-        ## v1t <- v1[dta[,treat]==1]
-        ## v1u <- v1[dta[,treat]==0]
-        ## v2t <- v2[dta[,treat]==1]
-        ## v2u <- v2[dta[,treat]==0]
+        M <- as.matrix(apply(as.matrix(((1-D)/(1-pscore))^2 * g(x,thet) * (dy - mean(uwait*dy)) * x), 2, mean) / mean(uwait1))
+        A1 <- g(x,thet)^2/(pscore*(1-pscore))
+        A1 <- (t(A1*x)%*%x/n)
+        A2 <- (((D-pscore)*g(x,thet)/(pscore*(1-pscore)))*x)
+        A <- A2%*%solve(A1)
+        psiu <- uwait*(dy - mean(uwait*dy)) + A%*%M
 
         
-        ##inffunct=(v1t-v2t), inffuncu=(v1u-v2u), 
-       
-        ##could return each bootstrap iteration w/ eachIter
-        ##but not currently doing that
+        V <- mean((psit-psiu)^2)
+
+        SEobj <- SE(ate.se=sqrt(V)/sqrt(n))
+        
+        ## old code
+        ## uwait <- (1-D)*pscore/(p*(1-pscore))
+        ## w0 <- D/p - uwait / mean(uwait)
+
+        ## ## instead of bootstrap, compute these analytically
+        ## v1 <- w0*dy - att
+
+        ## a <- apply(as.numeric((1-D)*g(x,thet)/(p*(1-pscore)^2)*dy)*x,2,mean)##apply((w0*g(x,thet))*x,2,mean) ##should be kx1
+        ## Aw <- g(x,thet)^2 / (G(x,thet)*(1-G(x,thet)))
+        ## A <- t(Aw*x)%*%x/n
+        ## s <- g(x,thet)*(D-G(x,thet)) / (G(x,thet)*(1-G(x,thet))) * x
+
+        ## v2 <- as.numeric(t(a)%*%solve(A)%*%t(s))  ##***is this right?***
+
+        ## V <- mean((v1-v2)^2)
+
+        ## SEobj <- SE(ate.se=sqrt(V)/sqrt(n))
+
         ##TODO: set this back to being a QTE object
         out <- list(qte=NULL, pscore.reg=satt$pscore.reg, ate=satt$ate,
-                   ate.se=SEobj$ate.se, probs=NULL, inffunc=(v1-v2))
+                   ate.se=SEobj$ate.se, probs=NULL, inffunc=(psit-psiu))
         class(out) <- "QTE"
         return(out)
     } else {

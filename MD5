@@ -1,6 +1,6 @@
-6795b36b57352435b7b6e3e4755f0572 *DESCRIPTION
+7f6f643998a326673b532e541238e0b2 *DESCRIPTION
 23c2b0aa2cfefd7d495909e2c37aa962 *NAMESPACE
-d0134346ba469b56b873e2893a7baed2 *NEWS.md
+526ce64c7b54b29de7466d7b07bb224e *NEWS.md
 e199172d7abb3aac02612baf5b7c79c2 *R/DR.R
 c4f4bfa9079b47f01cca9fbaebb74318 *R/QDiD.R
 7bcd6c2023793a65d83551325125b6bd *R/QTEparams.R
@@ -11,11 +11,11 @@ bdf87feebb0764a7b34bff2591176c48 *R/ciqtet.R
 aa2a5008fcdbffb892828cf024b2adb2 *R/ddid2.R
 dfa74ea8426b759573913eab28cafd83 *R/helper-functions.R
 40a3b12d2e8e9ddc329c8631f0a942df *R/imports.R
-1ebb74ec4e955804c0f28960e4b20085 *R/qte.R
+974d6daecefdf80ae964b0ab0b011b12 *R/qte.R
 815ac58be8418a9aa76383d1f001e547 *R/setupData.R
-db19c9e4f398a04d202e9c9ddbc2501e *R/spatt.R
-1f5e6e35676d83ba7bc6feaca003ee45 *README.md
-790956abe4ce57386e9742ca9c16e0a0 *build/vignette.rds
+65e8e84e1de4fc2a1e262b5b281f54fd *R/spatt.R
+7335231f9ef4b8bce2e4345a68b59134 *README.md
+3ac0be155b9c4068169005a8913f8b57 *build/vignette.rds
 4e29bc6b24c37864da5bffcc1fc70d87 *data/lalonde.RData
 078588e0becff839f5a6ec40fc396bb2 *inst/doc/R-QTEs.R
 d8b57882b1ac8494bfba0cdbe55d6933 *inst/doc/R-QTEs.Rmd
