@@ -4,35 +4,31 @@
 \alias{QDiD}
 \title{Quantile Difference in Differences}
 \usage{
-QDiD(formla, xformla = NULL, t, tmin1, tname, x = NULL, data,
-  dropalwaystreated = TRUE, panel = FALSE, se = TRUE, idname = NULL,
-  method = NULL, uniqueid = NULL, alp = 0.05, probs = seq(0.05, 0.95,
-  0.05), iters = 100, retEachIter = FALSE, seedvec = NULL,
-  printIter = F, pl = FALSE, cores = NULL)
+QDiD(formla, xformla = NULL, t, tmin1, tname, data, panel = FALSE,
+  se = TRUE, idname = NULL, alp = 0.05, probs = seq(0.05, 0.95,
+  0.05), iters = 100, retEachIter = FALSE, pl = FALSE,
+  cores = NULL)
 }
 \arguments{
 \item{formla}{The formula y ~ d where y is the outcome and d is the
-treatment indicator (d should be binary)}
+treatment indicator (d should be binary), d should be equal to one
+in all time periods for individuals that are eventually treated}
 
 \item{xformla}{A optional one sided formula for additional covariates that
 will be adjusted for.  E.g ~ age + education.  Additional covariates can
 also be passed by name using the x paramater.}
 
-\item{t}{The 3rd time period in the sample (this is the name of the column)}
+\item{t}{The 3rd time period in the sample.  Treated individuals should
+be treated in this time period and untreated individuals should not be
+treated.  The code attempts to enforce this condition, but it is good
+try to handle this outside the panel.qtet method.}
 
-\item{tmin1}{The 2nd time period in the sample (this is the name of the
-column)}
+\item{tmin1}{The 2nd time period in the sample.  This should be a
+pre-treatment period for all individuals in the sample.}
 
 \item{tname}{The name of the column containing the time periods}
 
-\item{x}{An optional vector of covariates (the name of the columns).
-Covariates can also be passed in formulat notation using the
-xformla paramter.}
-
-\item{data}{The name of the data.frame that contains the data}
-
-\item{dropalwaystreated}{How to handle always treated observations
-in panel data case (not currently used)}
+\item{data}{A data.frame containing all the variables used}
 
 \item{panel}{Binary variable indicating whether or not the dataset is
 panel.  This is used for computing bootstrap standard errors correctly.}
@@ -40,11 +36,6 @@ panel.  This is used for computing bootstrap standard errors correctly.}
 \item{se}{Boolean whether or not to compute standard errors}
 
 \item{idname}{The individual (cross-sectional unit) id name}
-
-\item{method}{The method for estimating the propensity score when covariates
-are included}
-
-\item{uniqueid}{Not sure if this is used anymore}
 
 \item{alp}{The significance level used for constructing bootstrap
 confidence intervals}
@@ -55,19 +46,13 @@ confidence intervals}
 This is only used if se=TRUE}
 
 \item{retEachIter}{Boolean whether or not to return list of results
-from each iteration of the bootstrap procedure}
+from each iteration of the bootstrap procedure (default is FALSE).
+This is potentially useful for debugging but can cause errors due
+to running out of memory.}
 
-\item{seedvec}{Optional value to set random seed; can possibly be used
-in conjunction with bootstrapping standard errors.}
+\item{pl}{Whether or not to compute standard errors in parallel}
 
-\item{printIter}{Boolean only used for debugging}
-
-\item{pl}{boolean for whether or not to compute bootstrap error in parallel.
-Note that computing standard errors in parallel is a new feature and may
-not work at all on Windows.}
-
-\item{cores}{the number of cores to use if bootstrap standard errors are
-computed in parallel}
+\item{cores}{Number of cores to use if computing in parallel}
 }
 \value{
 QTE Object

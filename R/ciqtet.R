@@ -145,11 +145,11 @@ compute.ci.qtet = function(qp) {
 #' @export
 ci.qtet <- function(formla, xformla=NULL, w=NULL, data,
                     probs=seq(0.05,0.95,0.05), se=TRUE,
-                 iters=100, alp=0.05, plot=FALSE, method="logit",
-                 retEachIter=FALSE, seedvec=NULL, indsample=TRUE,
+                 iters=100, alp=0.05, method="logit",
+                 retEachIter=FALSE, indsample=TRUE,
                  printIter=FALSE, pl=FALSE, cores=2) {
 
-    qp <- QTEparams(formla, xformla, t=NULL, tmin1=NULL, tmin2=NULL, tname=NULL, data=data, idname=NULL, probs=probs, iters=iters, alp=alp, method=method, plot=plot, se=se, retEachIter=retEachIter, bootstrapiter=FALSE, seedvec=NULL, pl=pl, cores=cores)
+    qp <- QTEparams(formla, xformla, t=NULL, tmin1=NULL, tmin2=NULL, tname=NULL, data=data, idname=NULL, probs=probs, iters=iters, alp=alp, method=method, se=se, retEachIter=retEachIter, bootstrapiter=FALSE, pl=pl, cores=cores)
     setupData(qp) ##may be able to get rid of this too
 
     
@@ -164,14 +164,15 @@ ci.qtet <- function(formla, xformla=NULL, w=NULL, data,
         SEobj <- bootstrap(qp, firpo.qtet, compute.ci.qtet)
 
         out <- QTE(qte=firpo.qtet$qte, qte.upper=SEobj$qte.upper,
-                    qte.lower=SEobj$qte.lower, ate=firpo.qtet$ate,
-                    ate.upper=SEobj$ate.upper, ate.lower=SEobj$ate.lower,
-                    qte.se=SEobj$qte.se, ate.se=SEobj$ate.se,
-                    pscore.reg=firpo.qtet$pscore.reg,
-                    F.treated.t=firpo.qtet$F.treated.t,
-                    F.treated.t.cf=firpo.qtet$F.treated.t.cf,
-                    eachIterList=eachIter,
-                    probs=probs)
+                   qte.lower=SEobj$qte.lower, ate=firpo.qtet$ate,
+                   ate.upper=SEobj$ate.upper, ate.lower=SEobj$ate.lower,
+                   qte.se=SEobj$qte.se, ate.se=SEobj$ate.se,
+                   c=SEobj$c,
+                   pscore.reg=firpo.qtet$pscore.reg,
+                   F.treated.t=firpo.qtet$F.treated.t,
+                   F.treated.t.cf=firpo.qtet$F.treated.t.cf,
+                   eachIterList=eachIter,
+                   probs=probs)
         return(out)
     } else {
         return(firpo.qtet)

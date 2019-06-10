@@ -39,30 +39,55 @@ qtes2mat <- function(qteList, sset=NULL, se=TRUE, rnd=3) {
 #' @param ylim optional limits of y axis
 #' @param ybreaks optional breaks in y axis
 #' @param xbreaks optional breaks in x axis
+#' @param setype options are "pointwise", "uniform" or both; pointwise confidence
+#'  intervals cover the QTE at each particular point with a fixed probability,
+#'  uniform confidence bands cover the entire curve with a fixed
+#'  probability.  Uniform confidence bands will tend to be wider.  The option
+#'  "both" will plot both types of confidence intervals
 #' 
 #' @return a ggplot object
 #' @export
-ggqte <- function(qteobj, main="", ylab="", ylim=NULL, ybreaks=NULL, xbreaks=c(.1,.3,.5,.7,.9)) {
+ggqte <- function(qteobj, main="", ylab="QTE", ylim=NULL, ybreaks=NULL, xbreaks=c(.1,.3,.5,.7,.9), setype="pointwise") {
     tau <- qteobj$probs
     qte <- qteobj$qte
     qte.se <- qteobj$qte.se
-    cmat <- data.frame(tau, qte=qteobj$qte, qte.se=qteobj$qte.se)
-    qp <- ggplot2::ggplot(data=cmat, aes(tau, qte, ymax=qte+1.96*qte.se,
-                                ymin=qte-1.96*qte.se)) +
+    c <- qteobj$c
+    if (!is.null(qte.se)) {
+        cmat <- data.frame(tau, qte=qteobj$qte, qte.se=qteobj$qte.se)
+    } else {
+        cmat <- data.frame(tau, qte=qteobj$qte)
+    }
+    qp <- ggplot2::ggplot(data=cmat, aes(tau, qte)) +
         ggplot2::geom_line(aes(tau, qte)) +
-        ggplot2::geom_line(aes(tau, qte+1.96*qte.se), linetype="dashed") +
-        ggplot2::geom_line(aes(tau, qte-1.96*qte.se), linetype="dashed") +
         ##geom_errorbar(size=.3, width=.02) + 
         ggplot2::geom_hline(yintercept=0) + 
         ggplot2::geom_point(aes(tau, qte)) +
-        ggplot2::ggtitle(main) + 
-        ggplot2::scale_y_continuous(ylab, limits=ylim, breaks=ybreaks) +
+        ggplot2::ggtitle(main) +
         ggplot2::scale_x_continuous("tau", limits=c(0,1), breaks=xbreaks) + 
         ggplot2::theme_classic() +
         ggplot2::theme(panel.border = element_rect(colour = 'black', size=1,
-                                          fill=NA,
-                                          linetype='solid'),
+                                                   fill=NA,
+                                                   linetype='solid'),
                        plot.title = element_text(hjust=0.5))
+    if ( is.null(ylim) & is.null(ybreaks) ) {
+        qp <- qp + ggplot2::scale_y_continuous(ylab)
+    } else if ( is.null(ylim) & !is.null(ybreaks) ) {
+        qp  <- qp + ggplot2::scale_y_continuous(ylab, breaks=ybreaks)
+    } else if ( !is.null(ylim) & is.null(ybreaks) ) {
+        qp  <- qp + ggplot2::scale_y_continuous(ylab, limits=ylim)
+    } else {
+        ggplot2::scale_y_continuous(ylab, limits=ylim, breaks=ybreaks)
+    }
+    
+    if (!is.null(qte.se)) {
+        if (setype == "both" | setype == "pointwise") {
+            qp <- qp + ggplot2::geom_line(aes(tau, qte+1.96*qte.se), linetype="dashed")
+            qp <- qp + ggplot2::geom_line(aes(tau, qte-1.96*qte.se), linetype="dashed")
+        }
+        if (setype == "both" | setype == "uniform") {
+            qp <-  qp + ggplot2::geom_line(aes(tau, qte+c*qte.se), linetype="dashed") + ggplot2::geom_line(aes(tau, qte-c*qte.se), linetype="dashed")
+        }
+    }
     qp
 }
 

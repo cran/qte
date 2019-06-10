@@ -82,27 +82,8 @@ compute.ci.qte <- function(qp) {
 
         ate <- getWeightedMean(y, treated.weights) -
             getWeightedMean(y, untreated.weights)
-        #ate <- wtd.mean(y, w*D/pscore) - wtd.mean(y, w*(1-D)/(1-pscore)) ##( ((D-pscore)*y) / (pscore*(1-pscore)) ) ##wtd.mean(y, weights=n*w*((D-pscore)/(pscore*(1-pscore)))##
-
-        ##Alternative method for calculating the distribution of each
-        ##potential outcome using moment conditions / these could be
-        ## inverted to get quantiles
-        ##comment this out (unused)
-        ##F.treated <- ecdf(treated[,yname])
-        ##F.treatedcf.fun <- function(y) {
-        ##    pterm <- pscore/((1-pscore)*p)
-        ##    Dterm <- 1 - data[,treat]
-        ##    yterm <- 1*(data[,yname] < y)
-        ##    mean(pterm*Dterm*yterm)
-        ##} #something appears to be off here for 0 wages, otherwise, everything good!
-        ##y.seq <- seq(min(data[,yname]), max(data[,yname]), length.out=500)
-        ##F.treatedcf = approxfun(y.seq,
-        ##    vapply(y.seq, FUN=F.treatedcf.fun, FUN.VALUE=1)
-        ##    , method="constant", yleft=0, yright=1, f=0, ties="ordered")
-        ##class(F.treatedcf) = c("ecdf", "stepfun", class(F.treatedcf.fun))
-        ##assign("nobs", nrow(treated), envir = environment(F.treatedcf))
     }
-
+    
     ##set up the distributions too if they are needed
     if (is.null(untreated.firpo.quantiles)) {
         F.treated.t.cf <- ecdf(untreated[,yname])
@@ -171,11 +152,11 @@ compute.ci.qte <- function(qp) {
 #' @export
 ci.qte <- function(formla, xformla=NULL, x=NULL, data, w=NULL,
                    probs=seq(0.05,0.95,0.05), se=TRUE,
-                   iters=100, alp=0.05, plot=FALSE, method="logit",
-                   retEachIter=FALSE, seedvec=NULL, 
+                   iters=100, alp=0.05, method="logit",
+                   retEachIter=FALSE, 
                    printIter=FALSE, pl=FALSE, cores=2) {
 
-    qp <- QTEparams(formla, xformla, t=NULL, tmin1=NULL, tmin2=NULL, tname=NULL, data=data, w=w, idname=NULL, probs=probs, iters=iters, alp=alp, method=method, plot=plot, se=se, retEachIter=retEachIter, bootstrapiter=FALSE, seedvec=NULL, pl=pl, cores=cores)
+    qp <- QTEparams(formla, xformla, t=NULL, tmin1=NULL, tmin2=NULL, tname=NULL, data=data, w=w, idname=NULL, probs=probs, iters=iters, alp=alp, method=method, se=se, retEachIter=retEachIter, bootstrapiter=FALSE, pl=pl, cores=cores)
     ##setupData(qp) ##may be able to get rid of this too
 
     
@@ -190,17 +171,17 @@ ci.qte <- function(formla, xformla=NULL, x=NULL, data, w=NULL,
         SEobj <- bootstrap(qp, firpo.qte, compute.ci.qte)
 
         out <- QTE(qte=firpo.qte$qte, qte.upper=SEobj$qte.upper,
-                    qte.lower=SEobj$qte.lower, ate=firpo.qte$ate,
-                    ate.upper=SEobj$ate.upper, ate.lower=SEobj$ate.lower,
-                    qte.se=SEobj$qte.se, ate.se=SEobj$ate.se,
-                    pscore.reg=firpo.qte$pscore.reg,
-                    F.treated.t=firpo.qte$F.treated.t,
-                    F.treated.t.cf=firpo.qte$F.treated.t.cf,
-                    eachIterList=eachIter,
-                    probs=probs)
+                   qte.lower=SEobj$qte.lower, ate=firpo.qte$ate,
+                   ate.upper=SEobj$ate.upper, ate.lower=SEobj$ate.lower,
+                   qte.se=SEobj$qte.se, ate.se=SEobj$ate.se,
+                   c=SEobj$c,
+                   pscore.reg=firpo.qte$pscore.reg,
+                   F.treated.t=firpo.qte$F.treated.t,
+                   F.treated.t.cf=firpo.qte$F.treated.t.cf,
+                   eachIterList=eachIter,
+                   probs=probs)
         return(out)
     } else {
         return(firpo.qte)
     }
-
 }

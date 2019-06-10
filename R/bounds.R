@@ -23,8 +23,8 @@
 #' @return A \code{BoundsObj} object
 #' 
 #' @export
-bounds <- function(formla, xformla=NULL, t, tmin1, tname, x=NULL,data,
-                   dropalwaystreated=TRUE, idname, plot=F,
+bounds <- function(formla, xformla=NULL, t, tmin1, tname, data,
+                   idname, 
                    probs=seq(0.05,0.95,0.05)) {
     form = stats::as.formula(formla)
     dta = stats::model.frame(stats::terms(form,data=data),data=data) #or model.matrix
@@ -46,11 +46,7 @@ bounds <- function(formla, xformla=NULL, t, tmin1, tname, x=NULL,data,
     
     data = subset(data, (data[,tname]==tmin1 | data[,tname]==t))
     data = makeBalancedPanel(data, idname, tname)
-    
-    if (dropalwaystreated) {
-                                        #donothing
-    }
-    
+        
     ##just to make sure the factors are working ok
     data = droplevels(data)
     
@@ -94,7 +90,7 @@ bounds <- function(formla, xformla=NULL, t, tmin1, tname, x=NULL,data,
     att = mean(treated.t[,yname]) - mean(treated.tmin1[,yname]) -
         (mean(untreated.t[,yname]) - mean(untreated.tmin1[,yname]))
     ##2c.1) If there are covariates, then above distribution needs to be changed
-    if (!(is.null(x))) {
+    if (!(is.null(xformla))) {
         ##set up the data to do the propensity score re-weighting
         ##we need to bind the datasets back together to estimate pscore
         treated.t$changey = treated.t[,yname] - treated.tmin1[,yname]
@@ -178,13 +174,13 @@ bounds <- function(formla, xformla=NULL, t, tmin1, tname, x=NULL,data,
         ub.quantiles)
     ub.qte = as.numeric(stats::quantile(treated.t[,yname],probs=probs) - 
         lb.quantiles)
-    if (plot) {
-        plot(probs, lb.qte, 
-             type="l", lty=2, xlab="tau", ylab="QTE",
-             ylim=c(-2.5,2.5))
-        graphics::lines(probs, ub.qte, lty=2)
-        graphics::abline(a=att, b=0, col="blue")
-    }    
+    ## if (plot) {
+    ##     plot(probs, lb.qte, 
+    ##          type="l", lty=2, xlab="tau", ylab="QTE",
+    ##          ylim=c(-2.5,2.5))
+    ##     graphics::lines(probs, ub.qte, lty=2)
+    ##     graphics::abline(a=att, b=0, col="blue")
+    ## }    
     return(BoundsObj(lbs=lbs,ubs=ubs, ub.quantiles=ub.quantiles,
                 lb.quantiles=lb.quantiles, ub.qte=ub.qte,
                 lb.qte = lb.qte, att=att, probs=probs))
