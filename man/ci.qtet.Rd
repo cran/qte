@@ -4,10 +4,22 @@
 \alias{ci.qtet}
 \title{ci.qtet}
 \usage{
-ci.qtet(formla, xformla = NULL, w = NULL, data, probs = seq(0.05,
-  0.95, 0.05), se = TRUE, iters = 100, alp = 0.05,
-  method = "logit", retEachIter = FALSE, indsample = TRUE,
-  printIter = FALSE, pl = FALSE, cores = 2)
+ci.qtet(
+  formla,
+  xformla = NULL,
+  w = NULL,
+  data,
+  probs = seq(0.05, 0.95, 0.05),
+  se = TRUE,
+  iters = 100,
+  alp = 0.05,
+  method = "logit",
+  retEachIter = FALSE,
+  indsample = TRUE,
+  printIter = FALSE,
+  pl = FALSE,
+  cores = 2
+)
 }
 \arguments{
 \item{formla}{The formula y ~ d where y is the outcome and d is the
@@ -86,5 +98,5 @@ summary(q2)
 }
 \references{
 Firpo, Sergio.   ``Efficient Semiparametric Estimation of Quantile Treatment
- Effects.'' Econometrica 75.1, pp. 259-276, 2015.
+Effects.'' Econometrica 75.1, pp. 259-276, 2015.
 }

@@ -4,9 +4,23 @@
 \alias{CiC}
 \title{Change in Changes}
 \usage{
-CiC(formla, xformla = NULL, t, tmin1, tname, data, panel = FALSE,
-  se = TRUE, idname = NULL, alp = 0.05, probs = seq(0.05, 0.95,
-  0.05), iters = 100, pl = FALSE, cores = 2, retEachIter = FALSE)
+CiC(
+  formla,
+  xformla = NULL,
+  t,
+  tmin1,
+  tname,
+  data,
+  panel = FALSE,
+  se = TRUE,
+  idname = NULL,
+  alp = 0.05,
+  probs = seq(0.05, 0.95, 0.05),
+  iters = 100,
+  pl = FALSE,
+  cores = 2,
+  retEachIter = FALSE
+)
 }
 \arguments{
 \item{formla}{The formula y ~ d where y is the outcome and d is the
@@ -58,10 +72,10 @@ QTE Object
 }
 \description{
 \code{CiC} computes the Quantile Treatment Effect on the
- Treated (QTET) using the method of Athey and Imbens (2006).  \code{CiC}
- is a Difference in Differences type method.  It requires
- having two periods of data that can be either  repeated cross sections
- or panel data.
+Treated (QTET) using the method of Athey and Imbens (2006).  \code{CiC}
+is a Difference in Differences type method.  It requires
+having two periods of data that can be either  repeated cross sections
+or panel data.
 
 The method can accommodate conditioning on covariates though it does so
 in a restrictive way:  It specifies a linear model for outcomes conditional
@@ -84,6 +98,6 @@ summary(c1)
 }
 \references{
 Athey, Susan and Guido Imbens.  ``Identification and Inference in Nonlinear
- Difference-in-Differences Models.'' Econometrica 74.2, pp. 431-497,
- 2006.
+Difference-in-Differences Models.'' Econometrica 74.2, pp. 431-497,
+2006.
 }

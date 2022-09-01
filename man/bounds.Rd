@@ -4,8 +4,16 @@
 \alias{bounds}
 \title{bounds}
 \usage{
-bounds(formla, xformla = NULL, t, tmin1, tname, data, idname,
-  probs = seq(0.05, 0.95, 0.05))
+bounds(
+  formla,
+  xformla = NULL,
+  t,
+  tmin1,
+  tname,
+  data,
+  idname,
+  probs = seq(0.05, 0.95, 0.05)
+)
 }
 \arguments{
 \item{formla}{The formula y ~ d where y is the outcome and d is the
@@ -37,8 +45,8 @@ A \code{BoundsObj} object
 }
 \description{
 \code{bounds} estimates bounds for the Quantile Treatment
- Effect on the
- Treated (QTET) using the method of Fan and Yu (2012).
+Effect on the
+Treated (QTET) using the method of Fan and Yu (2012).
 }
 \examples{
 ## load the data
@@ -52,6 +60,6 @@ summary(b1)
 }
 \references{
 Fan, Yanqin and Zhengfei Yu.  ``Partial Identification of Distributional
- and Quantile Treatment Effects in Difference-in-Differences Models.''
- Economics Letters 115.3, pp.511-515, 2012.
+and Quantile Treatment Effects in Difference-in-Differences Models.''
+Economics Letters 115.3, pp.511-515, 2012.
 }

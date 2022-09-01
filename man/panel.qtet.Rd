@@ -4,10 +4,24 @@
 \alias{panel.qtet}
 \title{panel.qtet}
 \usage{
-panel.qtet(formla, xformla = NULL, t, tmin1, tmin2, tname, data, idname,
-  probs = seq(0.05, 0.95, 0.05), iters = 100, alp = 0.05,
-  method = c("qr", "pscore"), se = TRUE, retEachIter = FALSE,
-  pl = FALSE, cores = NULL)
+panel.qtet(
+  formla,
+  xformla = NULL,
+  t,
+  tmin1,
+  tmin2,
+  tname,
+  data,
+  idname,
+  probs = seq(0.05, 0.95, 0.05),
+  iters = 100,
+  alp = 0.05,
+  method = c("qr", "pscore"),
+  se = TRUE,
+  retEachIter = FALSE,
+  pl = FALSE,
+  cores = NULL
+)
 }
 \arguments{
 \item{formla}{The formula y ~ d where y is the outcome and d is the
@@ -116,5 +130,5 @@ summary(pq4)
 }
 \references{
 Callaway, Brantly and Tong Li.  ``Quantile Treatment Effects in Difference
- in Differences Models with Panel Data.'' Working Paper, 2019.
+in Differences Models with Panel Data.'' Working Paper, 2019.
 }
