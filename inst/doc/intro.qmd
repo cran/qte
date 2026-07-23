@@ -1,0 +1,241 @@
+---
+title: "Quantile Treatment Effects in R"
+author: "Brantly Callaway"
+date: today
+format: html
+bibliography: refs.bib
+knitr:
+  opts_chunk:
+    collapse: true
+    comment: "#>"
+    fig.width: 6
+    fig.height: 4
+vignette: >
+  %\VignetteIndexEntry{Quantile Treatment Effects in R}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+---
+
+## What are Quantile Treatment Effects?
+
+The Average Treatment Effect (ATE) or Average Treatment Effect on the Treated
+(ATT) summarizes the causal effect of a treatment by a single number: the mean
+difference in outcomes between treated and untreated units. This is often a
+natural quantity, but it can miss important heterogeneity. If a job training
+program substantially raises earnings at the bottom of the distribution while
+having little effect at the top, the ATE obscures this. If a minimum wage
+increase compresses the wage distribution, an average effect conceals the
+compression.
+
+The Quantile Treatment Effect at level $\tau$ is $QTE(\tau) = Q_{Y(1)}(\tau) -
+Q_{Y(0)}(\tau)$, where $Q_{Y(d)}(\tau)$ is the $\tau$-th quantile of the
+potential outcome distribution under treatment status $d$. Mapping $QTE(\tau)$
+across $\tau \in (0,1)$ traces how the treatment shifts the entire outcome
+distribution. The Quantile Treatment Effect on the Treated ($QTT$) conditions
+on the treated group.
+
+This vignette demonstrates `unc_qte()`, the `qte` package's estimator for
+cross-sectional settings (no panel data required). For DiD-based estimators
+and staggered treatment adoption, see `vignette("panel-estimators")` and
+`vignette("staggered-adoption")`.
+
+```{r}
+#| label: setup
+#| message: false
+library(qte)
+library(ggplot2)
+set.seed(42)
+data(lalonde)
+xf <- ~ age + I(age^2) + education + black + hispanic + married + nodegree
+```
+
+```{r}
+#| label: compute-results
+#| include: false
+# Results are precomputed and cached so CRAN's vignette rebuild doesn't have
+# to re-run the bootstrap on every check. Delete precomputed/intro-results.rds
+# and re-render to regenerate after a code change (see CLAUDE.md).
+cache_file <- "precomputed/intro-results.rds"
+use_cache <- file.exists(cache_file)
+
+if (use_cache) {
+  cached   <- readRDS(cache_file)
+  res_exp  <- cached$res_exp
+  res_psid <- cached$res_psid
+  res_qtt  <- cached$res_qtt
+} else {
+  res_exp <- unc_qte(
+    yname  = "re78",
+    dname  = "treat",
+    data   = lalonde.exp,
+    target = "qte",
+    probs  = seq(0.1, 0.9, 0.1),
+    biters = 100
+  )
+  res_psid <- unc_qte(
+    yname      = "re78",
+    dname      = "treat",
+    data       = lalonde.psid,
+    xformla    = xf,
+    est_method = "aipw",
+    target     = "qte",
+    probs      = seq(0.1, 0.9, 0.1),
+    biters     = 100
+  )
+  res_qtt <- unc_qte(
+    yname      = "re78",
+    dname      = "treat",
+    data       = lalonde.psid,
+    xformla    = xf,
+    est_method = "aipw",
+    target     = "qtt",
+    probs      = seq(0.1, 0.9, 0.1),
+    biters     = 100
+  )
+  # pscore.reg (fitted glm) carries a full copy of the training data and is
+  # never read by summary()/autoplot(); dropping it keeps the cache small.
+  save_psid <- res_psid; save_psid$pscore.reg <- NULL
+  save_qtt  <- res_qtt;  save_qtt$pscore.reg  <- NULL
+  saveRDS(list(res_exp = res_exp, res_psid = save_psid, res_qtt = save_qtt), cache_file)
+}
+```
+
+## Random assignment
+
+Under random assignment, no covariate adjustment is needed: the unconditional
+quantiles of the treated and control outcome distributions identify the QTE
+directly. `unc_qte()` implements the semiparametrically efficient estimator
+of @firpo-2007. We use the experimental Lalonde data (`lalonde.exp`), where
+treatment was randomly assigned.
+
+```{r}
+#| label: random-qte
+#| eval: false
+res_exp <- unc_qte(
+  yname  = "re78",
+  dname  = "treat",
+  data   = lalonde.exp,
+  target = "qte",
+  probs  = seq(0.1, 0.9, 0.1),
+  biters = 100
+)
+summary(res_exp)
+```
+
+```{r}
+#| label: random-qte-output
+#| echo: false
+summary(res_exp)
+```
+
+```{r}
+#| label: random-qte-plot
+#| fig-alt: "QTE curve under random assignment"
+autoplot(res_exp, ylab = "QTE (earnings, 1978)")
+```
+
+The confidence band indicates that the QTE is positive across much of the
+distribution, with the effect somewhat larger in the lower quantiles.
+
+## Unconfoundedness
+
+When treatment is not randomly assigned, the unconfoundedness assumption
+(conditional independence of potential outcomes given covariates) provides
+identification [@firpo-2007]. We use the observational Lalonde data
+(`lalonde.psid`), which combines the treated group from the experiment with
+a comparison group from the PSID.
+
+`unc_qte()` supports three estimation methods:
+
+- `"ipw"` — inverse probability weighting (propensity score re-weighting)
+- `"or"` — outcome regression (conditional quantile regression)
+- `"aipw"` — augmented IPW (doubly robust; recommended)
+
+```{r}
+#| label: obs-qte
+#| eval: false
+xf <- ~ age + I(age^2) + education + black + hispanic + married + nodegree
+
+res_psid <- unc_qte(
+  yname      = "re78",
+  dname      = "treat",
+  data       = lalonde.psid,
+  xformla    = xf,
+  est_method = "aipw",
+  target     = "qte",
+  probs      = seq(0.1, 0.9, 0.1),
+  biters     = 100
+)
+summary(res_psid)
+```
+
+```{r}
+#| label: obs-qte-output
+#| echo: false
+summary(res_psid)
+```
+
+```{r}
+#| label: obs-qte-plot
+#| fig-alt: "QTE curve under unconfoundedness"
+autoplot(res_psid, ylab = "QTE (earnings, 1978)")
+```
+
+## QTT under unconfoundedness
+
+Setting `target = "qtt"` estimates the Quantile Treatment Effect on the
+Treated — the distributional effect for the subpopulation that actually
+received treatment.
+
+```{r}
+#| label: qtt
+#| eval: false
+res_qtt <- unc_qte(
+  yname      = "re78",
+  dname      = "treat",
+  data       = lalonde.psid,
+  xformla    = xf,
+  est_method = "aipw",
+  target     = "qtt",
+  probs      = seq(0.1, 0.9, 0.1),
+  biters     = 100
+)
+summary(res_qtt)
+```
+
+```{r}
+#| label: qtt-output
+#| echo: false
+summary(res_qtt)
+```
+
+```{r}
+#| label: qtt-plot
+#| fig-alt: "QTT curve under unconfoundedness"
+autoplot(res_qtt, ylab = "QTT (earnings, 1978)")
+```
+
+## Reading the output
+
+`summary()` prints the overall ATT, the QTE/QTT at each quantile, and
+standard errors with confidence intervals. `autoplot()` returns a `ggplot`
+object so you can add layers:
+
+```{r}
+#| label: custom-plot
+#| eval: false
+autoplot(res_qtt) +
+  ggplot2::labs(title = "QTT — Lalonde (observational)",
+                subtitle = "AIPW with pre-treatment covariates")
+```
+
+By default `autoplot()` shows a uniform confidence band (`cband = TRUE`),
+which provides simultaneous coverage over all quantile levels — a stronger
+guarantee than pointwise intervals. Pass `cband = FALSE` for pointwise
+intervals instead.
+
+Standard errors are computed via the empirical bootstrap. The `biters`
+argument controls the number of iterations (default 100). Parallel computation
+is available via the `cl` argument.
+
+## References

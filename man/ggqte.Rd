@@ -11,7 +11,8 @@ ggqte(
   ylim = NULL,
   ybreaks = NULL,
   xbreaks = c(0.1, 0.3, 0.5, 0.7, 0.9),
-  setype = "pointwise"
+  setype = "pointwise",
+  alp = qteobj$alp
 )
 }
 \arguments{
@@ -27,16 +28,15 @@ ggqte(
 
 \item{xbreaks}{optional breaks in x axis}
 
-\item{setype}{options are "pointwise", "uniform" or both; pointwise confidence
-intervals cover the QTE at each particular point with a fixed probability,
-uniform confidence bands cover the entire curve with a fixed
-probability.  Uniform confidence bands will tend to be wider.  The option
-"both" will plot both types of confidence intervals}
+\item{setype}{options are "pointwise", "uniform" or both}
+
+\item{alp}{significance level override}
 }
 \value{
 a ggplot object
 }
 \description{
-Makes somewhat nicer plots of quantile treatment effects
-by using ggplot
+\strong{Deprecated.} Use \code{autoplot()} on a \code{QTE}
+object instead.
 }
+\keyword{internal}

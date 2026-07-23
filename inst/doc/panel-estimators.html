@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.37">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Brantly Callaway">
+<meta name="dcterms.date" content="2026-07-22">
+
+<title>Panel Data Estimators for Quantile Treatment Effects</title>
+<style>
+
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+width: 0.8em;
+margin: 0 0.8em 0.2em -1em;  vertical-align: middle;
+}
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
+
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+{ counter-reset: source-line 0; }
+pre.numberSource code > span
+{ position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+{ content: counter(source-line);
+position: relative; left: -1em; text-align: right; vertical-align: baseline;
+border: none; display: inline-block;
+-webkit-touch-callout: none; -webkit-user-select: none;
+-khtml-user-select: none; -moz-user-select: none;
+-ms-user-select: none; user-select: none;
+padding: 0 4px; width: 4em;
+}
+pre.numberSource { margin-left: 3em; padding-left: 4px; }
+div.sourceCode
+{ }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+
+div.csl-bib-body { }
+div.csl-entry {
+clear: both;
+}
+.hanging-indent div.csl-entry {
+margin-left:2em;
+text-indent:-2em;
+}
+div.csl-left-margin {
+min-width:2em;
+float:left;
+}
+div.csl-right-inline {
+margin-left:2em;
+padding-left:1em;
+}
+div.csl-indent {
+margin-left: 2em;
+}</style>
+
+
+
+
+<style type="text/css">body {
+background-color: #fff;
+margin: 1em auto;
+max-width: 700px;
+overflow: visible;
+padding-left: 2em;
+padding-right: 2em;
+font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+font-size: 14px;
+line-height: 1.35;
+}
+table {
+margin: 1em auto;
+border-width: 1px;
+border-color: #DDDDDD;
+border-style: outset;
+border-collapse: collapse;
+}
+table th {
+border-width: 2px;
+padding: 5px;
+border-style: inset;
+}
+table td {
+border-width: 1px;
+border-style: inset;
+line-height: 18px;
+padding: 5px 5px;
+}
+table, table th, table td {
+border-left-style: none;
+border-right-style: none;
+}
+table thead, table tr.even {
+background-color: #f7f7f7;
+}
+p {
+margin: 0.5em 0;
+}
+blockquote {
+background-color: #f6f6f6;
+padding: 0.25em 0.75em;
+}
+hr {
+border-style: solid;
+border: none;
+border-top: 1px solid #777;
+margin: 28px 0;
+}
+dl {
+margin-left: 0;
+}
+dl dd {
+margin-bottom: 13px;
+margin-left: 13px;
+}
+dl dt {
+font-weight: bold;
+}
+ul {
+margin-top: 0;
+}
+ul li {
+list-style: circle outside;
+}
+ul ul {
+margin-bottom: 0;
+}
+pre, code {
+background-color: #f7f7f7;
+border-radius: 3px;
+color: #333;
+white-space: pre-wrap; 
+}
+pre {
+border-radius: 3px;
+margin: 5px 0px 10px 0px;
+padding: 10px;
+}
+pre:not([class]) {
+background-color: #f7f7f7;
+}
+code {
+font-family: Consolas, Monaco, 'Courier New', monospace;
+font-size: 85%;
+}
+p > code, li > code {
+padding: 2px 0px;
+}
+div.figure {
+text-align: center;
+}
+img {
+background-color: #FFFFFF;
+padding: 2px;
+border: 1px solid #DDDDDD;
+border-radius: 3px;
+border: 1px solid #CCCCCC;
+margin: 0 5px;
+}
+h1 {
+margin-top: 0;
+font-size: 35px;
+line-height: 40px;
+}
+h2 {
+border-bottom: 4px solid #f7f7f7;
+padding-top: 10px;
+padding-bottom: 2px;
+font-size: 145%;
+}
+h3 {
+border-bottom: 2px solid #f7f7f7;
+padding-top: 10px;
+font-size: 120%;
+}
+h4 {
+border-bottom: 1px solid #f7f7f7;
+margin-left: 8px;
+font-size: 105%;
+}
+h5, h6 {
+border-bottom: 1px solid #ccc;
+font-size: 105%;
+}
+a {
+color: #0033dd;
+text-decoration: none;
+}
+a:hover {
+color: #6666ff; }
+a:visited {
+color: #800080; }
+a:visited:hover {
+color: #BB00BB; }
+a[href^="http:"] {
+text-decoration: underline; }
+a[href^="https:"] {
+text-decoration: underline; }
+</style>
+</head>
+
+<body>
+
+
+<header id="title-block-header">
+<h1 class="title">Panel Data Estimators for Quantile Treatment Effects</h1>
+<p class="author">Brantly Callaway</p>
+
+<p class="date">2026-07-22</p>
+</header>
+
+
+<h2 id="overview">Overview</h2>
+<p>The <code>qte</code> package provides six DiD-based estimators for the QTT. All share the same <code>yname</code>/<code>gname</code>/<code>tname</code>/<code>idname</code> interface and support staggered treatment adoption natively. They differ in their identification assumptions and the restrictions those assumptions impose on the data-generating process.</p>
+<p>This vignette describes each estimator conceptually and shows the minimal call. For a full applied workflow with aggregations and event-study plots, see <code>vignette(&quot;staggered-adoption&quot;)</code>.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(qte)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ptetools)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">42</span>)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">data</span>(mpdta, <span class="at">package =</span> <span class="st">&quot;did&quot;</span>)</span></code></pre></div>
+</div>
+<p>We use <code>mpdta</code> throughout: a balanced panel of 500 US counties observed annually from 2003–2007, with <code>lemp</code> (log employment) as the outcome and <code>first.treat</code> as the cohort variable (year of first minimum wage increase; 0 = never treated).</p>
+<p>The common call structure for all six estimators is:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">estimator</span>(</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">yname  =</span> <span class="st">&quot;lemp&quot;</span>,        <span class="co"># outcome</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">gname  =</span> <span class="st">&quot;first.treat&quot;</span>, <span class="co"># first treatment period (0 = never treated)</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">tname  =</span> <span class="st">&quot;year&quot;</span>,        <span class="co"># calendar time</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">idname =</span> <span class="st">&quot;countyreal&quot;</span>,  <span class="co"># unit id</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">data   =</span> mpdta,</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">gt_type =</span> <span class="st">&quot;att&quot;</span>,        <span class="co"># &quot;att&quot; or &quot;qtt&quot;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">biters  =</span> <span class="dv">100</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div>
+<hr>
+<h2 id="change-in-changes-cic">Change in Changes — <code>cic()</code></h2>
+<p><strong>Reference:</strong> <span class="citation" data-cites="athey-imbens-2006">Athey and Imbens (2006)</span></p>
+<p><strong>Identifying assumption:</strong> The distributional time-change is the same for both groups: <span class="math display"><em>Q</em><sub><em>Y</em><sub><em>t</em></sub>(0)|<em>D</em> = 1</sub> (<em>F</em><sub><em>Y</em><sub><em>t</em> − 1</sub>(0)|<em>D</em> = 1</sub>(<em>y</em>)) = <em>Q</em><sub><em>Y</em><sub><em>t</em></sub>(0)|<em>D</em> = 0</sub> (<em>F</em><sub><em>Y</em><sub><em>t</em> − 1</sub>(0)|<em>D</em> = 0</sub>(<em>y</em>))  for all <em>y</em>,</span> along with a support condition: <span class="math inline">supp(<em>Y</em><sub><em>t</em> − 1</sub>(0)|<em>D</em> = 1) ⊆ supp(<em>Y</em><sub><em>t</em> − 1</sub>(0)|<em>D</em> = 0)</span>.</p>
+<p><strong>Intuition:</strong> The expression <span class="math inline"><em>Q</em><sub><em>Y</em><sub><em>t</em></sub>(0)|<em>D</em> = <em>g</em></sub>(<em>F</em><sub><em>Y</em><sub><em>t</em> − 1</sub>(0)|<em>D</em> = <em>g</em></sub>(<em>y</em>))</span> takes a pre-period value <span class="math inline"><em>y</em></span>, finds its quantile rank in group <span class="math inline"><em>g</em></span>’s pre-period distribution, and returns the post-period value at that same rank within group <span class="math inline"><em>g</em></span>’s distribution. The assumption requires this operation to give the same result for both groups at every <span class="math inline"><em>y</em></span>. It can be thought of as a nonlinear version of parallel trends: where parallel trends requires the <em>mean</em> of <span class="math inline"><em>Y</em>(0)</span> to shift equally across groups, CiC requires the <em>entire distributional time-change</em> to be the same.</p>
+<p><strong>Identification:</strong> Under this assumption the counterfactual quantile function is <span class="math display"><em>Q</em><sub><em>Y</em><sub><em>t</em></sub>(0)|<em>D</em> = 1</sub>(<em>τ</em>) = <em>Q</em><sub><em>Y</em><sub><em>t</em></sub>|<em>D</em> = 0</sub> (<em>F</em><sub><em>Y</em><sub><em>t</em> − 1</sub>|<em>D</em> = 0</sub> (<em>Q</em><sub><em>Y</em><sub><em>t</em> − 1</sub>|<em>D</em> = 1</sub>(<em>τ</em>))).</span></p>
+<p><strong>When to use:</strong> Works with panel or repeated cross sections.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>res_cic <span class="ot">&lt;-</span> <span class="fu">cic</span>(</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">yname  =</span> <span class="st">&quot;lemp&quot;</span>, <span class="at">gname =</span> <span class="st">&quot;first.treat&quot;</span>, <span class="at">tname =</span> <span class="st">&quot;year&quot;</span>,</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">idname =</span> <span class="st">&quot;countyreal&quot;</span>, <span class="at">data =</span> mpdta,</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">gt_type =</span> <span class="st">&quot;att&quot;</span>, <span class="at">biters =</span> <span class="dv">100</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(res_cic)</span></code></pre></div>
+</div>
+<div class="cell">
+<pre><code>#&gt; 
+#&gt; Overall ATT:  
+#&gt;      ATT    Std. Error     [ 95%  Conf. Int.] 
+#&gt;  -0.0197        0.0157    -0.0541      0.0147 
+#&gt; 
+#&gt; 
+#&gt; Dynamic Effects:
+#&gt;  Event Time Estimate Std. Error [95% Simult.  Conf. Band]  
+#&gt;          -3   0.0508     0.0214        0.0090      0.0927 *
+#&gt;          -2   0.0158     0.0169       -0.0174      0.0491  
+#&gt;          -1  -0.0128     0.0179       -0.0478      0.0222  
+#&gt;           0  -0.0081     0.0154       -0.0383      0.0221  
+#&gt;           1  -0.0364     0.0233       -0.0820      0.0092  
+#&gt;           2  -0.1226     0.0500       -0.2206     -0.0245 *
+#&gt;           3  -0.0930     0.0502       -0.1914      0.0055  
+#&gt; ---
+#&gt; Signif. codes: `*&#39; confidence band does not cover 0</code></pre>
+</div>
+<hr>
+<h2 id="quantile-difference-in-differences-qdid">Quantile Difference-in-Differences — <code>qdid()</code></h2>
+<p><strong>References:</strong> <span class="citation" data-cites="athey-imbens-2006">Athey and Imbens (2006)</span>; <span class="citation" data-cites="meyer-viscusi-durbin-1995">Meyer et al. (1995)</span></p>
+<p><strong>Identifying assumption:</strong> The change in quantiles over time is the same for both groups: <span class="math display"><em>Q</em><sub><em>Y</em><sub><em>t</em></sub>(0)|<em>D</em> = 1</sub>(<em>τ</em>) − <em>Q</em><sub><em>Y</em><sub><em>t</em> − 1</sub>(0)|<em>D</em> = 1</sub>(<em>τ</em>) = <em>Q</em><sub><em>Y</em><sub><em>t</em></sub>(0)|<em>D</em> = 0</sub>(<em>τ</em>) − <em>Q</em><sub><em>Y</em><sub><em>t</em> − 1</sub>(0)|<em>D</em> = 0</sub>(<em>τ</em>)  for all <em>τ</em> ∈ (0, 1).</span></p>
+<p><strong>Intuition:</strong> This requires parallel trends to hold at every quantile level <span class="math inline"><em>τ</em></span>, not just in the mean. It directly identifies the counterfactual: <span class="math display"><em>Q</em><sub><em>Y</em><sub><em>t</em></sub>(0)|<em>D</em> = 1</sub>(<em>τ</em>) = <em>Q</em><sub><em>Y</em><sub><em>t</em> − 1</sub>|<em>D</em> = 1</sub>(<em>τ</em>) + <em>Q</em><sub><em>Y</em><sub><em>t</em></sub>|<em>D</em> = 0</sub>(<em>τ</em>) − <em>Q</em><sub><em>Y</em><sub><em>t</em> − 1</sub>|<em>D</em> = 0</sub>(<em>τ</em>).</span></p>
+<p><strong>When to use:</strong> Works with panel or repeated cross sections.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>res_qdid <span class="ot">&lt;-</span> <span class="fu">qdid</span>(</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">yname  =</span> <span class="st">&quot;lemp&quot;</span>, <span class="at">gname =</span> <span class="st">&quot;first.treat&quot;</span>, <span class="at">tname =</span> <span class="st">&quot;year&quot;</span>,</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">idname =</span> <span class="st">&quot;countyreal&quot;</span>, <span class="at">data =</span> mpdta,</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">gt_type =</span> <span class="st">&quot;att&quot;</span>, <span class="at">biters =</span> <span class="dv">100</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(res_qdid)</span></code></pre></div>
+</div>
+<div class="cell">
+<pre><code>#&gt; 
+#&gt; Overall ATT:  
+#&gt;      ATT    Std. Error     [ 95%  Conf. Int.]  
+#&gt;  -0.0282        0.0125    -0.0506     -0.0058 *
+#&gt; 
+#&gt; 
+#&gt; Dynamic Effects:
+#&gt;  Event Time Estimate Std. Error [95% Simult.  Conf. Band]  
+#&gt;          -3   0.0266     0.0172       -0.0070      0.0602  
+#&gt;          -2  -0.0040     0.0133       -0.0301      0.0221  
+#&gt;          -1  -0.0247     0.0126       -0.0493     -0.0001 *
+#&gt;           0  -0.0164     0.0128       -0.0415      0.0086  
+#&gt;           1  -0.0584     0.0189       -0.0953     -0.0214 *
+#&gt;           2  -0.1470     0.0408       -0.2269     -0.0671 *
+#&gt;           3  -0.1111     0.0404       -0.1904     -0.0319 *
+#&gt; ---
+#&gt; Signif. codes: `*&#39; confidence band does not cover 0</code></pre>
+</div>
+<hr>
+<h2 id="panel-qtt-panel_qtt">Panel QTT — <code>panel_qtt()</code></h2>
+<p><strong>Reference:</strong> <span class="citation" data-cites="callaway-li-2019">Callaway and Li (2019)</span></p>
+<p><strong>Identifying assumptions:</strong> The first assumption is <span class="math inline"><em>Δ</em><em>Y</em><sub><em>t</em></sub>(0) ⟂ <em>D</em></span> — the distribution of the change in untreated potential outcomes is the same for both groups: <span class="math display"><em>F</em><sub><em>Δ</em><em>Y</em><sub><em>t</em></sub>(0)|<em>D</em> = 1</sub> = <em>F</em><sub><em>Δ</em><em>Y</em><sub><em>t</em></sub>(0)|<em>D</em> = 0</sub>.</span> This identifies the marginal distribution of <span class="math inline"><em>Δ</em><em>Y</em><sub><em>t</em></sub>(0)</span> for the treated group. As shown in <span class="citation" data-cites="fan-yu-2012">Fan and Yu (2012)</span>, this is not sufficient on its own to identify the QTT. Identification is completed by a copula stability assumption: the copula linking <span class="math inline"><em>Δ</em><em>Y</em><sub><em>t</em></sub>(0)</span> to the lagged outcome <span class="math inline"><em>Y</em><sub><em>t</em> − 1</sub>(0)</span> is stable over time within the treated group, <span class="math display"><em>C</em><sub><em>Δ</em><em>Y</em><sub><em>t</em></sub>(0), <em>Y</em><sub><em>t</em> − 1</sub>(0)|<em>D</em> = 1</sub> = <em>C</em><sub><em>Δ</em><em>Y</em><sub><em>t</em> − 1</sub>(0), <em>Y</em><sub><em>t</em> − 2</sub>(0)|<em>D</em> = 1</sub>.</span></p>
+<p><strong>Intuition:</strong> For treated units, <span class="math inline"><em>Y</em><sub><em>t</em> − 1</sub></span> and <span class="math inline"><em>Y</em><sub><em>t</em> − 2</sub></span> are observed pre-treatment, so the right-hand copula can be estimated directly from the data. Copula stability says this same dependence structure governs <span class="math inline">(<em>Δ</em><em>Y</em><sub><em>t</em></sub>(0), <em>Y</em><sub><em>t</em> − 1</sub>(0))</span> in the post-period. Combined with the identified marginals, this pins down the conditional distribution of <span class="math inline"><em>Δ</em><em>Y</em><sub><em>t</em></sub>(0)</span> given <span class="math inline"><em>Y</em><sub><em>t</em> − 1</sub>(0) = <em>y</em></span> for treated units. Since <span class="math inline"><em>Y</em><sub><em>t</em></sub>(0) = <em>Y</em><sub><em>t</em> − 1</sub> + <em>Δ</em><em>Y</em><sub><em>t</em></sub>(0)</span> and <span class="math inline"><em>Y</em><sub><em>t</em> − 1</sub></span> is observed, the QTT is identified. Requires panel data with at least two pre-treatment periods per cohort.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>res_pqtt <span class="ot">&lt;-</span> <span class="fu">panel_qtt</span>(</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">yname  =</span> <span class="st">&quot;lemp&quot;</span>, <span class="at">gname =</span> <span class="st">&quot;first.treat&quot;</span>, <span class="at">tname =</span> <span class="st">&quot;year&quot;</span>,</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">idname =</span> <span class="st">&quot;countyreal&quot;</span>, <span class="at">data =</span> mpdta,</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">gt_type =</span> <span class="st">&quot;qtt&quot;</span>, <span class="at">probs =</span> <span class="fu">seq</span>(<span class="fl">0.1</span>, <span class="fl">0.9</span>, <span class="fl">0.1</span>), <span class="at">biters =</span> <span class="dv">100</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(res_pqtt)</span></code></pre></div>
+</div>
+<div class="cell">
+<pre><code>#&gt; 
+#&gt; Overall QTT Curve:
+#&gt;  Quantile     QTT Std. Error 95% CB Lower 95% CB Upper
+#&gt;       0.1 -0.0270     0.1625      -0.6175       0.5634
+#&gt;       0.2 -0.0852     0.0833      -0.3879       0.2176
+#&gt;       0.3 -0.0250     0.0523      -0.2149       0.1650
+#&gt;       0.4 -0.0680     0.0612      -0.2905       0.1546
+#&gt;       0.5 -0.0965     0.0545      -0.2944       0.1014
+#&gt;       0.6  0.0070     0.0375      -0.1294       0.1433
+#&gt;       0.7  0.0409     0.0567      -0.1652       0.2470
+#&gt;       0.8 -0.0201     0.0581      -0.2312       0.1910
+#&gt;       0.9 -0.0832     0.0632      -0.3130       0.1466</code></pre>
+</div>
+<hr>
+<h2 id="distributional-did-ddid">Distributional DiD — <code>ddid()</code></h2>
+<p><strong>Reference:</strong> <span class="citation" data-cites="callaway-li-2019">Callaway and Li (2019)</span></p>
+<p><strong>Identifying assumptions:</strong> The first is <span class="math inline"><em>Δ</em><em>Y</em><sub><em>t</em></sub>(0) ⟂ <em>D</em></span> — the same as in <code>panel_qtt()</code>. The copula assumption differs: rather than stability over time, <code>ddid()</code> assumes the copula of <span class="math inline">(<em>Δ</em><em>Y</em><sub><em>t</em></sub>(0), <em>Y</em><sub><em>t</em> − 1</sub>(0))</span> is the same for treated and untreated groups, <span class="math display"><em>C</em><sub><em>Δ</em><em>Y</em><sub><em>t</em></sub>(0), <em>Y</em><sub><em>t</em> − 1</sub>(0)|<em>D</em> = 1</sub> = <em>C</em><sub><em>Δ</em><em>Y</em><sub><em>t</em></sub>(0), <em>Y</em><sub><em>t</em> − 1</sub>(0)|<em>D</em> = 0</sub>.</span></p>
+<p><strong>Intuition:</strong> For the untreated group, <span class="math inline"><em>Δ</em><em>Y</em><sub><em>t</em></sub>(0) = <em>Δ</em><em>Y</em><sub><em>t</em></sub></span> is observed, so the right-hand copula can be estimated directly. The assumption transfers it to the treated group. Combined with the identified marginals, this pins down the joint distribution of <span class="math inline">(<em>Δ</em><em>Y</em><sub><em>t</em></sub>(0), <em>Y</em><sub><em>t</em> − 1</sub>(0))</span> for treated units and identifies the QTT — in exactly the same way as <code>panel_qtt()</code>. The key contrast is the source of the copula: <code>ddid()</code> borrows it from the untreated group at the same point in time, while <code>panel_qtt()</code> borrows it from the treated group’s own pre-treatment history.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>res_ddid <span class="ot">&lt;-</span> <span class="fu">ddid</span>(</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">yname  =</span> <span class="st">&quot;lemp&quot;</span>, <span class="at">gname =</span> <span class="st">&quot;first.treat&quot;</span>, <span class="at">tname =</span> <span class="st">&quot;year&quot;</span>,</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">idname =</span> <span class="st">&quot;countyreal&quot;</span>, <span class="at">data =</span> mpdta,</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">gt_type =</span> <span class="st">&quot;att&quot;</span>, <span class="at">biters =</span> <span class="dv">100</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(res_ddid)</span></code></pre></div>
+</div>
+<div class="cell">
+<pre><code>#&gt; 
+#&gt; Overall ATT:  
+#&gt;      ATT    Std. Error     [ 95%  Conf. Int.]  
+#&gt;  -0.0453        0.0143    -0.0785      -0.012 *
+#&gt; 
+#&gt; 
+#&gt; Dynamic Effects:
+#&gt;  Event Time Estimate Std. Error [95% Simult.  Conf. Band]  
+#&gt;          -3   0.0134     0.0159       -0.0178      0.0446  
+#&gt;          -2  -0.0146     0.0151       -0.0442      0.0150  
+#&gt;          -1  -0.0403     0.0154       -0.0704     -0.0102 *
+#&gt;           0  -0.0324     0.0132       -0.0583     -0.0065 *
+#&gt;           1  -0.0637     0.0182       -0.0994     -0.0281 *
+#&gt;           2  -0.1377     0.0352       -0.2068     -0.0686 *
+#&gt;           3  -0.1087     0.0367       -0.1806     -0.0368 *
+#&gt; ---
+#&gt; Signif. codes: `*&#39; confidence band does not cover 0</code></pre>
+</div>
+<hr>
+<h2 id="mean-difference-in-differences-mdid">Mean Difference-in-Differences — <code>mdid()</code></h2>
+<p><strong>Reference:</strong> <span class="citation" data-cites="thuysbaert-2007">Thuysbaert (2007)</span></p>
+<p><strong>Identifying assumption:</strong> The counterfactual quantile for the treated group in the post-period is the pre-period quantile shifted by the mean change in outcomes for the untreated group: <span class="math display"><em>Q</em><sub><em>Y</em><sub><em>t</em></sub>(0)|<em>D</em> = 1</sub>(<em>τ</em>) = <em>Q</em><sub><em>Y</em><sub><em>t</em> − 1</sub>|<em>D</em> = 1</sub>(<em>τ</em>) + <em>E</em>[<em>Y</em><sub><em>t</em></sub>|<em>D</em> = 0] − <em>E</em>[<em>Y</em><sub><em>t</em> − 1</sub>|<em>D</em> = 0].</span></p>
+<p><strong>Intuition:</strong> The assumption says the shape of the treated group’s outcome distribution is unchanged in the counterfactual — the entire distribution simply shifts by the amount the untreated group’s mean changed. This implies mean parallel trends (so the ATT is identified), but is stronger: it additionally requires that only the location of the distribution shifts, not its shape. Works with panel or repeated cross sections.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>res_mdid <span class="ot">&lt;-</span> <span class="fu">mdid</span>(</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">yname  =</span> <span class="st">&quot;lemp&quot;</span>, <span class="at">gname =</span> <span class="st">&quot;first.treat&quot;</span>, <span class="at">tname =</span> <span class="st">&quot;year&quot;</span>,</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">idname =</span> <span class="st">&quot;countyreal&quot;</span>, <span class="at">data =</span> mpdta,</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">gt_type =</span> <span class="st">&quot;att&quot;</span>, <span class="at">biters =</span> <span class="dv">100</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(res_mdid)</span></code></pre></div>
+</div>
+<div class="cell">
+<pre><code>#&gt; 
+#&gt; Overall ATT:  
+#&gt;      ATT    Std. Error     [ 95%  Conf. Int.]  
+#&gt;  -0.0305        0.0114    -0.0496     -0.0113 *
+#&gt; 
+#&gt; 
+#&gt; Dynamic Effects:
+#&gt;  Event Time Estimate Std. Error [95% Simult.  Conf. Band]  
+#&gt;          -3   0.0298     0.0127        0.0048      0.0547 *
+#&gt;          -2  -0.0024     0.0158       -0.0334      0.0285  
+#&gt;          -1  -0.0243     0.0131       -0.0500      0.0014  
+#&gt;           0  -0.0189     0.0106       -0.0397      0.0018  
+#&gt;           1  -0.0536     0.0173       -0.0875     -0.0197 *
+#&gt;           2  -0.1363     0.0393       -0.2133     -0.0593 *
+#&gt;           3  -0.1008     0.0378       -0.1748     -0.0268 *
+#&gt; ---
+#&gt; Signif. codes: `*&#39; confidence band does not cover 0</code></pre>
+</div>
+<hr>
+<h2 id="lagged-outcome-unconfoundedness-lou_qtt">Lagged-Outcome Unconfoundedness — <code>lou_qtt()</code></h2>
+<p><strong>Identification assumption:</strong> Unconfoundedness conditional on the lagged outcome — treatment is as good as randomly assigned after conditioning on the pre-treatment value of the outcome.</p>
+<p><strong>When to use:</strong> When selection into treatment may depend on lagged outcomes but not on unobserved heterogeneity — i.e., once you condition on the pre-treatment outcome, treatment assignment is as good as random. Requires panel data.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>res_lou <span class="ot">&lt;-</span> <span class="fu">lou_qtt</span>(</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">yname  =</span> <span class="st">&quot;lemp&quot;</span>, <span class="at">gname =</span> <span class="st">&quot;first.treat&quot;</span>, <span class="at">tname =</span> <span class="st">&quot;year&quot;</span>,</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">idname =</span> <span class="st">&quot;countyreal&quot;</span>, <span class="at">data =</span> mpdta,</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">gt_type =</span> <span class="st">&quot;att&quot;</span>, <span class="at">biters =</span> <span class="dv">100</span></span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(res_lou)</span></code></pre></div>
+</div>
+<div class="cell">
+<pre><code>#&gt; 
+#&gt; Overall ATT:  
+#&gt;      ATT    Std. Error     [ 95%  Conf. Int.]  
+#&gt;  -0.0384        0.0166    -0.0725     -0.0043 *
+#&gt; 
+#&gt; 
+#&gt; Dynamic Effects:
+#&gt;  Event Time Estimate Std. Error [95% Simult.  Conf. Band]  
+#&gt;          -3   0.0294     0.0144        0.0012      0.0577 *
+#&gt;          -2  -0.0124     0.0161       -0.0441      0.0192  
+#&gt;          -1  -0.0310     0.0199       -0.0701      0.0081  
+#&gt;           0  -0.0243     0.0157       -0.0551      0.0065  
+#&gt;           1  -0.0869     0.0306       -0.1470     -0.0269 *
+#&gt;           2  -0.1394     0.0356       -0.2092     -0.0696 *
+#&gt;           3  -0.1093     0.0378       -0.1834     -0.0352 *
+#&gt; ---
+#&gt; Signif. codes: `*&#39; confidence band does not cover 0</code></pre>
+</div>
+<hr>
+<h2 id="summary">Summary</h2>
+<table class="caption-top">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Function</th>
+<th>Assumption</th>
+<th>Panel required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>cic()</code></td>
+<td>Rank invariance + support</td>
+<td>Optional</td>
+<td>Nonparametric; strongest assumption</td>
+</tr>
+<tr class="even">
+<td><code>qdid()</code></td>
+<td>Distributional parallel trends</td>
+<td>Optional</td>
+<td>DiD analog for distributions</td>
+</tr>
+<tr class="odd">
+<td><code>panel_qtt()</code></td>
+<td>Copula stability</td>
+<td>Yes</td>
+<td>Requires ≥ 2 pre-periods per cohort</td>
+</tr>
+<tr class="even">
+<td><code>ddid()</code></td>
+<td>Conditional distributional PT</td>
+<td>Yes</td>
+<td>Adds covariate adjustment to QDiD</td>
+</tr>
+<tr class="odd">
+<td><code>mdid()</code></td>
+<td>Mean parallel trends</td>
+<td>Optional</td>
+<td>Weakest DiD assumption</td>
+</tr>
+<tr class="even">
+<td><code>lou_qtt()</code></td>
+<td>Lagged-outcome unconfoundedness</td>
+<td>Yes</td>
+<td>Not a parallel trends assumption</td>
+</tr>
+</tbody>
+</table>
+<p>All estimators return either a <code>pte_results</code> object (<code>gt_type = &quot;att&quot;</code>) or a <code>pte_qtt</code> object (<code>gt_type = &quot;qtt&quot;</code>), and support <code>autoplot()</code> for plotting overall curves and event-study summaries. See <code>vignette(&quot;staggered-adoption&quot;)</code> for the full applied workflow.</p>
+<h2 class="unnumbered" id="references">References</h2>
+<div id="refs" class="references csl-bib-body hanging-indent" role="list">
+<div id="ref-athey-imbens-2006" class="csl-entry" role="listitem">
+Athey, Susan, and Guido Imbens. 2006. <span>“Identification and Inference in Nonlinear Difference-in-Differences Models.”</span> <em>Econometrica</em> 74 (2): 431–97.
+</div>
+<div id="ref-callaway-li-2019" class="csl-entry" role="listitem">
+Callaway, Brantly, and Tong Li. 2019. <span>“Quantile Treatment Effects in Difference in Differences Models with Panel Data.”</span> <em>Quantitative Economics</em> 10 (4): 1579–618.
+</div>
+<div id="ref-fan-yu-2012" class="csl-entry" role="listitem">
+Fan, Yanqin, and Zhengfei Yu. 2012. <span>“Partial Identification of Distributional and Quantile Treatment Effects in Difference-in-Differences Models.”</span> <em>Economics Letters</em> 115 (3): 511–15.
+</div>
+<div id="ref-meyer-viscusi-durbin-1995" class="csl-entry" role="listitem">
+Meyer, Bruce, Kip Viscusi, and David Durbin. 1995. <span>“Workers’ Compensation and Injury Duration: <span>Evidence</span> from a Natural Experiment.”</span> <em>American Economic Review</em>, 322–40.
+</div>
+<div id="ref-thuysbaert-2007" class="csl-entry" role="listitem">
+Thuysbaert, Bram. 2007. <span>“Distributional Comparisons in Difference in Differences Models.”</span> Unpublished manuscript.
+</div>
+</div>
+
+
+
+
+
+</body></html>
