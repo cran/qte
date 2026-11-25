@@ -8,17 +8,20 @@ unc_qte(
   yname,
   dname,
   data,
-  xformla = ~1,
+  xformula = ~1,
   weightsname = NULL,
+  clustervars = NULL,
   probs = seq(0.05, 0.95, 0.05),
   alp = 0.05,
   biters = 100,
   cband = TRUE,
   boot_type = "empirical",
   method = c("logit", "probit"),
-  est_method = c("ipw", "or", "aipw"),
+  est_method = c("ipw", "reg", "aipw"),
   target = c("qte", "qtt"),
-  cl = 1
+  cond_dist = c("qr", "dr"),
+  cl = 1,
+  xformla = NULL
 )
 }
 \arguments{
@@ -29,12 +32,17 @@ unc_qte(
 
 \item{data}{data.frame containing the analysis data.}
 
-\item{xformla}{one-sided formula for covariates used in the propensity
+\item{xformula}{one-sided formula for covariates used in the propensity
 score and/or outcome model, e.g. \code{~ age + I(age^2) + education}.
 Default \code{~1} uses no covariates (simple quantile differences).}
 
 \item{weightsname}{character; name of a column in \code{data} containing
 sampling weights. Default \code{NULL} applies equal weights.}
+
+\item{clustervars}{character; name of a column in \code{data} to cluster
+standard errors on (one variable). The bootstrap then resamples whole
+clusters instead of rows. Default \code{NULL} treats rows as
+independent.}
 
 \item{probs}{numeric vector of quantile levels at which to evaluate the
 QTE or QTT. Default \code{seq(0.05, 0.95, 0.05)}.}
@@ -44,9 +52,14 @@ QTE or QTT. Default \code{seq(0.05, 0.95, 0.05)}.}
 \item{biters}{number of bootstrap iterations for standard errors and
 confidence bands. Default 100.}
 
-\item{cband}{logical; if \code{TRUE} (default), report a uniform confidence
-band (simultaneous over all quantiles in \code{probs}) in addition to
-pointwise intervals.}
+\item{cband}{logical; if \code{TRUE} (default), \code{qte.lower} and
+\code{qte.upper} form a uniform confidence band, simultaneous over all
+quantiles in \code{probs}: \code{qte} \eqn{\pm} \code{c} \eqn{\times}
+\code{qte.se}, with the bootstrap critical value \code{c} computed from
+draws standardized by \code{qte.se} (as the panel estimators' uniform
+bands are). If \code{FALSE},
+they are pointwise intervals, \code{qte} \eqn{\pm z_{1-\alpha/2}}
+\code{qte.se}.}
 
 \item{boot_type}{bootstrap variant. Currently only \code{"empirical"} is
 supported.}
@@ -57,7 +70,8 @@ supported.}
 \item{est_method}{estimation method; one of:
 \itemize{
 \item \code{"ipw"} (default) — inverse propensity weighting
-\item \code{"or"} — outcome regression via quantile regression inversion
+\item \code{"reg"} — outcome regression via quantile regression
+inversion (\code{"or"} is a deprecated alias)
 \item \code{"aipw"} — doubly-robust augmented IPW
 }}
 
@@ -69,7 +83,16 @@ supported.}
 \eqn{Q_{Y(1)|D=1}(\tau) - Q_{Y(0)|D=1}(\tau)}
 }}
 
+\item{cond_dist}{For \code{est_method = "reg"} or \code{"aipw"}, how the
+conditional outcome distributions are estimated: \code{"qr"} (default)
+for quantile regression or \code{"dr"} for distribution regression (a
+logit of \eqn{1\{Y \le y\}} on the covariates at a grid of thresholds;
+Chernozhukov, Fernandez-Val and Melly 2013). Ignored for \code{"ipw"}.}
+
 \item{cl}{number of cores for parallel bootstrap. Default 1 (sequential).}
+
+\item{xformla}{Deprecated; use \code{xformula}. Still accepted, with a
+warning.}
 }
 \value{
 An object of class \code{QTE} containing:
@@ -77,14 +100,25 @@ An object of class \code{QTE} containing:
 \item{\code{qte}}{numeric vector of estimated QTE (or QTT) at each
 element of \code{probs}.}
 \item{\code{ate}}{estimated ATE (or ATT when \code{target = "qtt"}).}
-\item{\code{qte.se}}{bootstrap standard errors for \code{qte}.}
-\item{\code{qte.lower}, \code{qte.upper}}{confidence interval bounds
-for \code{qte}; uniform when \code{cband = TRUE}, pointwise otherwise.}
+\item{\code{qte.se}}{bootstrap standard errors for \code{qte} (the
+standard deviation of the bootstrap draws).}
+\item{\code{qte.lower}, \code{qte.upper}}{confidence bounds for
+\code{qte}: a uniform band if \code{cband = TRUE}, pointwise
+intervals otherwise (see \code{cband}).}
+\item{\code{cband}}{whether \code{qte.lower}/\code{qte.upper} are a
+uniform band.}
 \item{\code{ate.se}, \code{ate.lower}, \code{ate.upper}}{SE and CI
 for \code{ate}.}
+\item{\code{c}}{bootstrap critical value for a uniform band over
+\code{probs}.}
 \item{\code{probs}}{the \code{probs} vector passed by the user.}
-\item{\code{pscore.reg}}{fitted propensity score \code{glm} object, or
-\code{NULL} when \code{est_method = "or"} or \code{xformla = ~1}.}
+\item{\code{pscore.reg}}{fitted propensity score \code{glm} object
+(without copies of the data: \code{coef()}, \code{vcov()},
+\code{summary()}, \code{fitted()} and \code{predict(newdata = )}
+work; \code{anova()} and \code{update()} do not), or
+\code{NULL} when \code{est_method = "reg"}.}
+\item{\code{F.treated.t}, \code{F.treated.t.cf}}{ECDFs of the
+estimated quantiles of \eqn{Y(1)} and \eqn{Y(0)} at \code{probs}.}
 }
 Use \code{summary()} to print a formatted table and \code{plot()} to
 display the QTE curve with confidence bands.
@@ -92,9 +126,11 @@ display the QTE curve with confidence bands.
 \description{
 Estimates the Quantile Treatment Effect (QTE) or Quantile
 Treatment Effect on the Treated (QTT) under unconfoundedness, also known
-as selection on observables. The key identifying assumption is
-\eqn{(Y(0), Y(1)) \perp D \mid X}, i.e., potential outcomes are
-independent of treatment conditional on covariates \eqn{X}.
+as selection on observables, with cross-sectional data. The key
+identifying assumption is \eqn{(Y(0), Y(1)) \perp D \mid X}, i.e.,
+potential outcomes are independent of treatment conditional on
+covariates \eqn{X}. For staggered treatment adoption with panel or
+repeated cross-section data, see \code{\link{lou_qtt}}.
 
 Three estimation methods are available via \code{est_method}:
 
@@ -106,7 +142,7 @@ distributions of the treated and untreated groups match. For the QTE,
 both groups are reweighted toward the population distribution; for the
 QTT, only the untreated group is reweighted toward the treated
 covariate distribution.}
-\item{\code{"or"}}{Outcome regression via quantile regression inversion.
+\item{\code{"reg"}}{Outcome regression via quantile regression inversion.
 \code{\link[quantreg]{rq}} is fit on a dense internal grid of
 \eqn{\tau} values, yielding a conditional quantile function
 \eqn{Q_{Y|X,D=j}(\tau)} for each arm \eqn{j}. The marginal
@@ -120,15 +156,35 @@ outcome model is correctly specified (semiparametric efficiency when
 both are correct).}
 }
 
-When \code{xformla = ~1} (the default), all three methods reduce to
+When \code{xformula = ~1} (the default), all three methods reduce to
 simple quantile differences between the treated and untreated groups, which
 is consistent under unconditional unconfoundedness. Covariates are required
 for covariate-adjusted estimation.
 
-Standard errors and uniform confidence bands are computed via the
-empirical bootstrap. Setting \code{biters = 0} is planned for a future
-version to skip inference and return point estimates only.
+Rows with a missing value in the outcome, treatment, weights or any
+covariate in \code{xformula} are dropped, with a warning.
+
+Standard errors and confidence intervals are computed via the empirical
+bootstrap, resampling rows of \code{data}, or whole clusters when
+\code{clustervars} is given.
 }
+\section{Discrete outcomes}{
+
+Quantile treatment effects usually require a continuous outcome. With
+mass points (e.g. many zeros) or few distinct values, quantiles jump and
+effects at quantiles inside a mass point are 0 by construction;
+identification based on ranks or quantile functions (change-in-changes,
+quantile DiD, the panel and distributional DiD copula arguments) only
+bounds the effects (Athey and Imbens 2006, Section 4); and bootstrap
+inference for quantiles can be unreliable. The estimators warn (once per
+call, class \code{qte_discrete_outcome}) when more than 10\\% of the
+outcome's observations share one value or it takes at most 20 distinct
+values, across all groups and periods; the thresholds are the options
+\code{qte.mass_point_tol} and \code{qte.discrete_n_unique}. The
+diagnostics are returned as \code{outcome_discreteness}.
+\code{\link{cdf_did}} is identified for discrete outcomes.
+}
+
 \examples{
 data(lalonde)
 
@@ -144,7 +200,7 @@ plot(q1)
 \donttest{
 xf <- ~ age + I(age^2) + education + black + hispanic + married + nodegree
 q2 <- unc_qte(yname = "re78", dname = "treat", data = lalonde.psid,
-              xformla = xf, est_method = "or",
+              xformula = xf, est_method = "reg",
               biters = 20, probs = seq(0.05, 0.95, 0.05))
 summary(q2)
 }
@@ -152,7 +208,7 @@ summary(q2)
 ## AIPW with covariates, QTT
 \donttest{
 q3 <- unc_qte(yname = "re78", dname = "treat", data = lalonde.psid,
-              xformla = xf, est_method = "aipw", target = "qtt",
+              xformula = xf, est_method = "aipw", target = "qtt",
               biters = 20, probs = seq(0.05, 0.95, 0.05))
 summary(q3)
 }

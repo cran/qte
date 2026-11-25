@@ -3,6 +3,7 @@
 #| message: false
 library(qte)
 library(ptetools)
+library(ggplot2)
 set.seed(42)
 data(mpdta, package = "did")
 
@@ -17,85 +18,65 @@ data(mpdta, package = "did")
 cache_file <- "precomputed/panel-estimators-results.rds"
 use_cache <- file.exists(cache_file)
 
-if (use_cache) {
-  cached   <- readRDS(cache_file)
-  res_cic  <- cached$res_cic
-  res_qdid <- cached$res_qdid
-  res_pqtt <- cached$res_pqtt
-  res_ddid <- cached$res_ddid
-  res_mdid <- cached$res_mdid
-  res_lou  <- cached$res_lou
-} else {
-  res_cic <- cic(
-    yname  = "lemp", gname = "first.treat", tname = "year",
-    idname = "countyreal", data = mpdta,
-    gt_type = "att", biters = 100
-  )
-  res_qdid <- qdid(
-    yname  = "lemp", gname = "first.treat", tname = "year",
-    idname = "countyreal", data = mpdta,
-    gt_type = "att", biters = 100
-  )
-  res_pqtt <- panel_qtt(
+fit <- function(estimator) {
+  estimator(
     yname  = "lemp", gname = "first.treat", tname = "year",
     idname = "countyreal", data = mpdta,
     gt_type = "qtt", probs = seq(0.1, 0.9, 0.1), biters = 100
   )
-  res_ddid <- ddid(
-    yname  = "lemp", gname = "first.treat", tname = "year",
-    idname = "countyreal", data = mpdta,
-    gt_type = "att", biters = 100
-  )
-  res_mdid <- mdid(
-    yname  = "lemp", gname = "first.treat", tname = "year",
-    idname = "countyreal", data = mpdta,
-    gt_type = "att", biters = 100
-  )
-  res_lou <- lou_qtt(
-    yname  = "lemp", gname = "first.treat", tname = "year",
-    idname = "countyreal", data = mpdta,
-    gt_type = "att", biters = 100
-  )
-  saveRDS(
-    list(res_cic = res_cic, res_qdid = res_qdid, res_pqtt = res_pqtt,
-      res_ddid = res_ddid, res_mdid = res_mdid, res_lou = res_lou),
-    cache_file
-  )
 }
+
+if (use_cache) {
+  cached <- readRDS(cache_file)
+} else {
+  cached <- list(
+    res_cic  = fit(cic),
+    res_qdid = fit(qdid),
+    res_pqtt = fit(panel_qtt),
+    res_ddid = fit(ddid),
+    res_mdid = fit(mdid),
+    res_cdf  = fit(cdf_did),
+    res_lou  = fit(lou_qtt)
+  )
+  saveRDS(cached, cache_file)
+}
+list2env(cached, envir = environment())
 
 
 ## -----------------------------------------------------------------------------
-#| label: cic-att
+#| label: cic
 #| eval: false
 # res_cic <- cic(
 #   yname  = "lemp", gname = "first.treat", tname = "year",
 #   idname = "countyreal", data = mpdta,
-#   gt_type = "att", biters = 100
+#   gt_type = "qtt", probs = seq(0.1, 0.9, 0.1), biters = 100
 # )
-# summary(res_cic)
+# autoplot(res_cic)
 
 
 ## -----------------------------------------------------------------------------
-#| label: cic-att-output
+#| label: cic-plot
 #| echo: false
-summary(res_cic)
+#| fig-alt: "Overall QTT curve from cic()"
+autoplot(res_cic)
 
 
 ## -----------------------------------------------------------------------------
-#| label: qdid-att
+#| label: qdid
 #| eval: false
 # res_qdid <- qdid(
 #   yname  = "lemp", gname = "first.treat", tname = "year",
 #   idname = "countyreal", data = mpdta,
-#   gt_type = "att", biters = 100
+#   gt_type = "qtt", probs = seq(0.1, 0.9, 0.1), biters = 100
 # )
-# summary(res_qdid)
+# autoplot(res_qdid)
 
 
 ## -----------------------------------------------------------------------------
-#| label: qdid-att-output
+#| label: qdid-plot
 #| echo: false
-summary(res_qdid)
+#| fig-alt: "Overall QTT curve from qdid()"
+autoplot(res_qdid)
 
 
 ## -----------------------------------------------------------------------------
@@ -106,62 +87,84 @@ summary(res_qdid)
 #   idname = "countyreal", data = mpdta,
 #   gt_type = "qtt", probs = seq(0.1, 0.9, 0.1), biters = 100
 # )
-# summary(res_pqtt)
+# autoplot(res_pqtt)
 
 
 ## -----------------------------------------------------------------------------
-#| label: panel-qtt-output
+#| label: panel-qtt-plot
 #| echo: false
-summary(res_pqtt)
+#| fig-alt: "Overall QTT curve from panel_qtt()"
+autoplot(res_pqtt)
 
 
 ## -----------------------------------------------------------------------------
-#| label: ddid-att
+#| label: ddid
 #| eval: false
 # res_ddid <- ddid(
 #   yname  = "lemp", gname = "first.treat", tname = "year",
 #   idname = "countyreal", data = mpdta,
-#   gt_type = "att", biters = 100
+#   gt_type = "qtt", probs = seq(0.1, 0.9, 0.1), biters = 100
 # )
-# summary(res_ddid)
+# autoplot(res_ddid)
 
 
 ## -----------------------------------------------------------------------------
-#| label: ddid-att-output
+#| label: ddid-plot
 #| echo: false
-summary(res_ddid)
+#| fig-alt: "Overall QTT curve from ddid()"
+autoplot(res_ddid)
 
 
 ## -----------------------------------------------------------------------------
-#| label: mdid-att
+#| label: mdid
 #| eval: false
 # res_mdid <- mdid(
 #   yname  = "lemp", gname = "first.treat", tname = "year",
 #   idname = "countyreal", data = mpdta,
-#   gt_type = "att", biters = 100
+#   gt_type = "qtt", probs = seq(0.1, 0.9, 0.1), biters = 100
 # )
-# summary(res_mdid)
+# autoplot(res_mdid)
 
 
 ## -----------------------------------------------------------------------------
-#| label: mdid-att-output
+#| label: mdid-plot
 #| echo: false
-summary(res_mdid)
+#| fig-alt: "Overall QTT curve from mdid()"
+autoplot(res_mdid)
 
 
 ## -----------------------------------------------------------------------------
-#| label: lou-att
+#| label: cdf-did
+#| eval: false
+# res_cdf <- cdf_did(
+#   yname  = "lemp", gname = "first.treat", tname = "year",
+#   idname = "countyreal", data = mpdta,
+#   gt_type = "qtt", probs = seq(0.1, 0.9, 0.1), biters = 100
+# )
+# autoplot(res_cdf)
+
+
+## -----------------------------------------------------------------------------
+#| label: cdf-did-plot
+#| echo: false
+#| fig-alt: "Overall QTT curve from cdf_did()"
+autoplot(res_cdf)
+
+
+## -----------------------------------------------------------------------------
+#| label: lou
 #| eval: false
 # res_lou <- lou_qtt(
 #   yname  = "lemp", gname = "first.treat", tname = "year",
 #   idname = "countyreal", data = mpdta,
-#   gt_type = "att", biters = 100
+#   gt_type = "qtt", probs = seq(0.1, 0.9, 0.1), biters = 100
 # )
-# summary(res_lou)
+# autoplot(res_lou)
 
 
 ## -----------------------------------------------------------------------------
-#| label: lou-att-output
+#| label: lou-plot
 #| echo: false
-summary(res_lou)
+#| fig-alt: "Overall QTT curve from lou_qtt()"
+autoplot(res_lou)
 

@@ -9,6 +9,7 @@ lou_gt(
   xformula = ~1,
   lagged_outcome_cov = TRUE,
   est_method = "ipw",
+  cond_dist = c("qr", "dr"),
   ...
 )
 }
@@ -23,8 +24,15 @@ or \code{ptetools::two_by_two_rcs_subset}. Contains columns \code{Y},
 outcome is appended to \code{xformula} as an additional covariate. Requires
 panel data (unit ids present in both periods).}
 
-\item{est_method}{One of \code{"ipw"}, \code{"or"}, or \code{"aipw"}.
+\item{est_method}{One of \code{"ipw"}, \code{"reg"}, or \code{"aipw"}
+(\code{"or"} is a deprecated alias for \code{"reg"}).
 Default \code{"ipw"}.}
+
+\item{cond_dist}{For \code{est_method = "reg"} or \code{"aipw"}, how the
+conditional distribution of the untreated outcome is estimated:
+\code{"qr"} (default) for quantile regression or \code{"dr"} for
+distribution regression. See \code{\link{cic_gt}}. Ignored for
+\code{"ipw"}.}
 
 \item{...}{Additional arguments (ignored).}
 }

@@ -12,7 +12,7 @@
 #   Callaway, Brantly. "Policy Evaluation during a Pandemic."
 #   Journal of Econometrics 236(2), 2023.
 # Author: Brant Callaway
-# Last update: 2026-05-22
+# Last update: 2026-11-20
 # Date created: 2026-05-22
 # =============================================================================
 
@@ -32,8 +32,14 @@
 #' @param lagged_outcome_cov Logical; if \code{TRUE} (default), the pre-period
 #'   outcome is appended to \code{xformula} as an additional covariate. Requires
 #'   panel data (unit ids present in both periods).
-#' @param est_method One of \code{"ipw"}, \code{"or"}, or \code{"aipw"}.
+#' @param est_method One of \code{"ipw"}, \code{"reg"}, or \code{"aipw"}
+#'   (\code{"or"} is a deprecated alias for \code{"reg"}).
 #'   Default \code{"ipw"}.
+#' @param cond_dist For \code{est_method = "reg"} or \code{"aipw"}, how the
+#'   conditional distribution of the untreated outcome is estimated:
+#'   \code{"qr"} (default) for quantile regression or \code{"dr"} for
+#'   distribution regression. See \code{\link{cic_gt}}. Ignored for
+#'   \code{"ipw"}.
 #' @param ... Additional arguments (ignored).
 #'
 #' @keywords internal
@@ -42,7 +48,12 @@
 #'   \code{extra_gt_returns} containing \code{F0} and \code{F1} (weighted ECDFs
 #'   of counterfactual and observed treated outcomes).
 lou_gt <- function(gt_data, xformula = ~1, lagged_outcome_cov = TRUE,
-                   est_method = "ipw", ...) {
+                   est_method = "ipw", cond_dist = c("qr", "dr"), ...) {
+  cond_dist <- match.arg(cond_dist)
+  # "or" is the pre-2.1.0 name of "reg"; lou_qtt() already warned about it
+  if (identical(est_method, "or")) est_method <- "reg"
+  # covariates fixed at their base-period values (panel data)
+  gt_data <- base_period_covariates(gt_data, xformula)
   gt_data <- droplevels(gt_data)
 
   pre_data  <- gt_data[gt_data$name == "pre",  ]
@@ -98,7 +109,8 @@ lou_gt <- function(gt_data, xformula = ~1, lagged_outcome_cov = TRUE,
   # --- IPW -------------------------------------------------------------------
   if (est_method == "ipw") {
     ps_formla  <- BMisc::toformula("D", BMisc::rhs_vars(xformula_use))
-    pscore_reg <- glm(ps_formla, data = post_data, family = binomial("logit"))
+    pscore_reg <- glm(ps_formla, data = post_data, family = quasibinomial("logit"),
+                      weights = .w)
     pscore     <- pmax(1e-6, pmin(1 - 1e-6, fitted(pscore_reg)))
 
     # QTT: reweight controls by p(x)/(1-p(x)) to match treated covariate dist
@@ -112,16 +124,17 @@ lou_gt <- function(gt_data, xformula = ~1, lagged_outcome_cov = TRUE,
            weighted.mean(Y_post_ctrl, u_wts)
 
   # --- OR --------------------------------------------------------------------
-  } else if (est_method == "or") {
+  } else if (est_method == "reg") {
     yformla <- BMisc::toformula("Y", BMisc::rhs_vars(xformula_use))
-    # Use .w by column name so rq() finds it inside the data frame;
-    # avoids parent.frame() lookup failure when called inside suppressWarnings
-    # Suppress "Solution may be nonunique" from quantreg LP solver — benign
-    M0 <- suppressWarnings(
-      quantreg::rq(yformla, data = post_ctrl, tau = tau_grid, weights = .w)
-    )
-    # Predict counterfactual conditional quantiles at treated units; monotonize
-    pred0  <- t(apply(as.matrix(predict(M0, newdata = post_trt)), 1, sort))
+    # conditional distribution of the control post-period outcome (quantile
+    # or distribution regression, weighted by .w; see cond_fit())
+    # factor levels of the whole cell; warn when the comparison fit is
+    # evaluated at treated covariates it doesn't span (#16)
+    xlev <- cond_xlevels(yformla, post_data)
+    check_cond_support(yformla, list(post_ctrl), post_trt)
+    M0 <- cond_fit(yformla, post_ctrl, cond_dist, tau_grid, xlev = xlev)
+    # counterfactual conditional quantiles at treated units, rows monotone
+    pred0  <- cond_quantile_matrix(M0, post_trt, tau_grid)
     wt_rep <- rep(post_trt$.w, each = K)
     wt_rep <- wt_rep / sum(wt_rep)
 
@@ -133,15 +146,18 @@ lou_gt <- function(gt_data, xformula = ~1, lagged_outcome_cov = TRUE,
   # --- AIPW ------------------------------------------------------------------
   } else if (est_method == "aipw") {
     ps_formla  <- BMisc::toformula("D", BMisc::rhs_vars(xformula_use))
-    pscore_reg <- glm(ps_formla, data = post_data, family = binomial("logit"))
+    pscore_reg <- glm(ps_formla, data = post_data, family = quasibinomial("logit"),
+                      weights = .w)
     pscore     <- pmax(1e-6, pmin(1 - 1e-6, fitted(pscore_reg)))
 
     yformla <- BMisc::toformula("Y", BMisc::rhs_vars(xformula_use))
-    M0 <- suppressWarnings(
-      quantreg::rq(yformla, data = post_ctrl, tau = tau_grid, weights = .w)
-    )
+    # factor levels of the whole cell; warn when the comparison fit is
+    # evaluated at treated covariates it doesn't span (#16)
+    xlev <- cond_xlevels(yformla, post_data)
+    check_cond_support(yformla, list(post_ctrl), post_trt)
+    M0 <- cond_fit(yformla, post_ctrl, cond_dist, tau_grid, xlev = xlev)
     # Predict at all post-period units for the augmentation term
-    pred0_all <- t(apply(as.matrix(predict(M0, newdata = post_data)), 1, sort))
+    pred0_all <- cond_quantile_matrix(M0, post_data, tau_grid)
 
     D      <- post_data$D
     y      <- post_data$Y
@@ -167,12 +183,14 @@ lou_gt <- function(gt_data, xformula = ~1, lagged_outcome_cov = TRUE,
     F1 <- BMisc::weighted_ecdf(Y_post_trt,  # nolint: object_name_linter
                                weights = w_post_trt)
 
-    # ATT via IPW augmentation (consistent under correct pscore)
-    ps_ctrl <- pscore[D == 0]
-    u_wts   <- post_ctrl$.w * ps_ctrl / (1 - ps_ctrl)
-    u_wts   <- u_wts / sum(u_wts)
-    att     <- weighted.mean(Y_post_trt, w_post_trt) -
-               weighted.mean(Y_post_ctrl, u_wts)
+    # Doubly-robust ATT: the mean of the AIPW counterfactual above,
+    #   E[Y(0)|D=1] = E[D*m0(X) + (1-D)*(p/(1-p))*(Y - m0(X))] / E[D],
+    # with m0(x) the outcome model's conditional mean (row mean of its
+    # predicted quantiles). Previously this was the IPW ATT (issue #11).
+    m0      <- rowMeans(pred0_all)
+    att0    <- weighted.mean(D * m0 + (1 - D) * pscore / (1 - pscore) * (y - m0),
+                             post_data$.w) / pbar
+    att     <- weighted.mean(Y_post_trt, w_post_trt) - att0
   }
 
   ptetools::attgt_noif(attgt = att,
@@ -204,7 +222,7 @@ lou_gt <- function(gt_data, xformula = ~1, lagged_outcome_cov = TRUE,
 #'     \item{\code{"ipw"}}{Propensity-score reweighting. Control units are
 #'       reweighted by \eqn{\hat p(X,Y_{\text{pre}})/(1-\hat p(X,Y_{\text{pre}}))}
 #'       to approximate the covariate distribution of the treated group.}
-#'     \item{\code{"or"}}{Outcome regression. A quantile regression model is
+#'     \item{\code{"reg"}}{Outcome regression. A quantile regression model is
 #'       fit on control units' post-period outcomes as a function of
 #'       \eqn{(X, Y_{\text{pre}})}, then predicted at treated units to
 #'       construct the counterfactual distribution (Melly 2006;
@@ -232,16 +250,30 @@ lou_gt <- function(gt_data, xformula = ~1, lagged_outcome_cov = TRUE,
 #'   propensity score and/or outcome model. Default \code{~1} uses no
 #'   additional covariates beyond the lagged outcome (when
 #'   \code{lagged_outcome_cov = TRUE}).
+#'   With panel data, each unit's covariates are taken from the base period
+#'   of each group-time cell (never from a post-treatment period); with
+#'   repeated cross sections, each observation's own values are used.
 #' @param lagged_outcome_cov Logical; if \code{TRUE} (default), the
 #'   pre-treatment outcome is added as a covariate in both the propensity
 #'   score and outcome models. Requires \code{panel = TRUE}.
 #' @param est_method Estimation method: \code{"ipw"} (default),
-#'   \code{"or"}, or \code{"aipw"}. See Details.
+#'   \code{"reg"} (\code{"or"} is a deprecated alias), or \code{"aipw"}.
+#'   See Details.
+#' @param cond_dist For \code{est_method = "reg"} or \code{"aipw"}, how the
+#'   conditional distribution of the untreated outcome is estimated:
+#'   \code{"qr"} (default) for quantile regression or \code{"dr"} for
+#'   distribution regression. See \code{\link{cic_gt}}. Ignored for
+#'   \code{"ipw"}.
 #' @param panel Logical; \code{TRUE} (default) for panel data,
 #'   \code{FALSE} for repeated cross sections. \code{lagged_outcome_cov = TRUE}
 #'   requires \code{panel = TRUE}.
 #' @param weightsname Name of the column in \code{data} containing sampling
 #'   weights. Default \code{NULL} uses equal weights.
+#' @param clustervars Name of a column in \code{data} to cluster standard
+#'   errors on, in addition to \code{idname} (as in \code{did::att_gt()}):
+#'   one variable, constant over time within each unit. Default \code{NULL}
+#'   clusters at the unit level. With the empirical bootstrap, whole clusters
+#'   are resampled.
 #' @param control_group Which units to use as the comparison group:
 #'   \code{"notyettreated"} (default) or \code{"nevertreated"}.
 #' @param anticipation Number of periods of anticipation. Default \code{0}.
@@ -300,13 +332,17 @@ lou_gt <- function(gt_data, xformula = ~1, lagged_outcome_cov = TRUE,
 #' summary(res_qtt)
 #' }
 #'
+#' @inheritSection cic Discrete outcomes
+#' @inheritSection cic Repeated cross sections
 #' @export
 lou_qtt <- function(yname, gname, tname, idname = NULL, data,
                     xformula          = ~1,
                     lagged_outcome_cov = TRUE,
-                    est_method        = c("ipw", "or", "aipw"),
+                    est_method        = c("ipw", "reg", "aipw"),
+                    cond_dist         = c("qr", "dr"),
                     panel             = TRUE,
                     weightsname       = NULL,
+                    clustervars       = NULL,
                     control_group     = "notyettreated",
                     anticipation      = 0,
                     alp               = 0.05,
@@ -315,7 +351,9 @@ lou_qtt <- function(yname, gname, tname, idname = NULL, data,
                     cl                = 1,
                     gt_type           = c("att", "qtt"),
                     probs             = NULL) {
-  est_method <- match.arg(est_method)
+  est_method <- match.arg(resolve_est_method_or(est_method),
+                          c("ipw", "reg", "aipw"))
+  cond_dist  <- match.arg(cond_dist)
   gt_type    <- match.arg(gt_type)
 
   if (isTRUE(lagged_outcome_cov) && !isTRUE(panel)) {
@@ -338,12 +376,20 @@ lou_qtt <- function(yname, gname, tname, idname = NULL, data,
     function(al, p, eg) ptetools::attgt_pte_aggregations(al, p)
   }
 
-  ptetools::pte(
+  # warn once if the outcome looks discrete (#17), for quantile results
+  # only: the ATT doesn't depend on the outcome being continuous.
+  # Never per (g,t) cell or bootstrap draw.
+  disc <- check_discrete_outcome(data, yname, weightsname,
+                                 warn = gt_type != "att")
+
+  res <- ptetools::pte(
     yname              = yname,
     gname              = gname,
     tname              = tname,
     idname             = idname,
-    data               = data,
+    data               = keep_used_columns(data, yname, gname, tname, idname,
+                                           weightsname, xformula,
+                                           clustervars = clustervars),
     panel              = panel,
     setup_pte_fun      = ptetools::setup_pte,
     subset_fun         = subset_fun,
@@ -352,7 +398,9 @@ lou_qtt <- function(yname, gname, tname, idname = NULL, data,
     xformula           = xformula,
     lagged_outcome_cov = lagged_outcome_cov,
     est_method         = est_method,
+    cond_dist          = cond_dist,
     weightsname        = weightsname,
+    clustervars        = clustervars,
     control_group      = control_group,
     anticipation       = anticipation,
     cband              = cband,
@@ -363,4 +411,6 @@ lou_qtt <- function(yname, gname, tname, idname = NULL, data,
     gt_type            = gt_type,
     probs              = probs
   )
+  res$outcome_discreteness <- disc
+  res
 }

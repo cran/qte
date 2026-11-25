@@ -4,10 +4,9 @@
 #   mdid_gt is the 2x2 workhorse used directly as a ptetools attgt_fun.
 #   mdid is the unified user-facing function covering two-period and staggered
 #   treatment adoption for both panel and repeated cross sections data.
-#   MDiD is a deprecated alias retained for backwards compatibility.
-#   compute.MDiD is an unexported helper kept only to support the deprecated MDiD.
+#   (The deprecated two-period MDiD() was removed in v2.1.0.)
 # Author: Brant Callaway
-# Last update: 2026-05-22
+# Last update: 2026-11-20
 # Date created: 2026-05-18
 # =============================================================================
 
@@ -67,6 +66,8 @@
 #'
 #' @export
 mdid_gt <- function(gt_data, xformula = ~1, ...) {
+  # covariates fixed at their base-period values (panel data)
+  gt_data <- base_period_covariates(gt_data, xformula)
   gt_data <- droplevels(gt_data)
 
   # extract the four (period x treatment-status) cells
@@ -111,11 +112,17 @@ mdid_gt <- function(gt_data, xformula = ~1, ...) {
     pre_trt   <- gt_data[gt_data$name == "pre"  & gt_data$D == 1, ]
 
     yformla      <- BMisc::toformula("Y", BMisc::rhs_vars(xformula)) # nolint: object_name_linter
-    lm_pre_ctrl  <- lm(yformla, data = pre_ctrl,  weights = pre_ctrl$.w)  # nolint: object_name_linter
-    lm_post_ctrl <- lm(yformla, data = post_ctrl, weights = post_ctrl$.w) # nolint: object_name_linter
+    # weighted least squares on each control cell (cond_mean_fit(): the lm()
+    # fit, with collinear columns dropped); factor levels of the whole cell,
+    # and a warning when the fits are evaluated at treated covariates they
+    # don't span (#16)
+    xlev <- cond_xlevels(yformla, gt_data)
+    check_cond_support(yformla, list(pre_ctrl, post_ctrl), pre_trt)
+    lm_pre_ctrl  <- cond_mean_fit(yformla, pre_ctrl,  xlev)
+    lm_post_ctrl <- cond_mean_fit(yformla, post_ctrl, xlev)
 
-    delta <- predict(lm_post_ctrl, newdata = pre_trt) - # nolint: object_name_linter
-               predict(lm_pre_ctrl,  newdata = pre_trt)
+    delta <- cond_mean_predict(lm_post_ctrl, pre_trt) -
+               cond_mean_predict(lm_pre_ctrl,  pre_trt)
   }
 
   kcf <- Y_pre_trt + delta
@@ -135,8 +142,8 @@ mdid_gt <- function(gt_data, xformula = ~1, ...) {
 
     if (!is.null(lm_pre_ctrl)) {
       # recompute delta on id-sorted pre_s so unit i's shift aligns with post_s[i]
-      delta_s <- predict(lm_post_ctrl, newdata = pre_s) - # nolint: object_name_linter
-                   predict(lm_pre_ctrl,  newdata = pre_s)
+      delta_s <- cond_mean_predict(lm_post_ctrl, pre_s) -
+                   cond_mean_predict(lm_pre_ctrl,  pre_s)
     } else {
       delta_s <- delta  # scalar; same shift for all units
     }
@@ -187,11 +194,20 @@ mdid_gt <- function(gt_data, xformula = ~1, ...) {
 #'   \code{panel = TRUE}.
 #' @param data A data frame.
 #' @param panel Logical; \code{TRUE} (default) for panel data,
-#'   \code{FALSE} for repeated cross sections.
+#'   \code{FALSE} for repeated cross sections (see the section on repeated
+#'   cross sections).
 #' @param xformula One-sided formula for covariates. Default \code{~1} uses no
 #'   covariates.
+#'   With panel data, each unit's covariates are taken from the base period
+#'   of each group-time cell (never from a post-treatment period); with
+#'   repeated cross sections, each observation's own values are used.
 #' @param weightsname Name of the column in \code{data} containing sampling
 #'   weights. Default \code{NULL} uses equal weights.
+#' @param clustervars Name of a column in \code{data} to cluster standard
+#'   errors on, in addition to \code{idname} (as in \code{did::att_gt()}):
+#'   one variable, constant over time within each unit. Default \code{NULL}
+#'   clusters at the unit level. With the empirical bootstrap, whole clusters
+#'   are resampled.
 #' @param control_group Which units to use as the comparison group:
 #'   \code{"notyettreated"} (default) or \code{"nevertreated"}.
 #' @param anticipation Number of periods of anticipation. Default \code{0}.
@@ -237,6 +253,8 @@ mdid_gt <- function(gt_data, xformula = ~1, ...) {
 #' summary(res_qtt)
 #' }
 #'
+#' @inheritSection cic Discrete outcomes
+#' @inheritSection cic Repeated cross sections
 #' @export
 mdid <- function(yname,
                  gname,
@@ -246,6 +264,7 @@ mdid <- function(yname,
                  panel         = TRUE,
                  xformula      = ~1,
                  weightsname   = NULL,
+                 clustervars   = NULL,
                  control_group = "notyettreated",
                  anticipation  = 0,
                  alp           = 0.05,
@@ -279,12 +298,20 @@ mdid <- function(yname,
     function(al, p, eg) ptetools::attgt_pte_aggregations(al, p)
   }
 
-  ptetools::pte(
+  # warn once if the outcome looks discrete (#17), for quantile results
+  # only: the ATT doesn't depend on the outcome being continuous.
+  # Never per (g,t) cell or bootstrap draw.
+  disc <- check_discrete_outcome(data, yname, weightsname,
+                                 warn = gt_type != "att")
+
+  res <- ptetools::pte(
     yname           = yname,
     gname           = gname,
     tname           = tname,
     idname          = idname,
-    data            = data,
+    data            = keep_used_columns(data, yname, gname, tname, idname,
+                                        weightsname, xformula,
+                                        clustervars = clustervars),
     panel           = panel,
     setup_pte_fun   = ptetools::setup_pte,
     subset_fun      = subset_fun,
@@ -292,6 +319,7 @@ mdid <- function(yname,
     aggte_fun       = aggte_fun,
     xformula        = xformula,
     weightsname     = weightsname,
+    clustervars     = clustervars,
     control_group   = control_group,
     anticipation    = anticipation,
     cband           = cband,
@@ -303,191 +331,6 @@ mdid <- function(yname,
     gt_type         = gt_type,
     probs           = probs
   )
+  res$outcome_discreteness <- disc
+  res
 }
-
-
-# --- Deprecated two-period workhorse (supports MDiD only) -------------------
-
-# Kept only to support the deprecated MDiD() wrapper below. Do not use in new
-# code; use mdid_gt() instead.
-#' @keywords internal
-# nolint start: object_name_linter
-compute.MDiD <- function(formla, xformla = NULL, t, tmin1, tname, data,
-                         panel = FALSE,
-                         idname = NULL, probs = seq(0.05, 0.95, 0.05)) {
-  form <- as.formula(formla)
-  dta <- model.frame(terms(form, data = data), data = data)
-  colnames(dta) <- c("y", "treatment")
-  yname <- "y"
-  treat <- "treatment"
-  data <- cbind.data.frame(dta, data)
-
-  x <- NULL
-  if (!(is.null(xformla))) {
-    x <- colnames(model.matrix(terms(as.formula(xformla)), data = data))[-1]
-    data <- cbind(
-      data[, c(yname, treat, idname, tname)],
-      model.matrix(terms(as.formula(xformla)), data = data)
-    )[, c(1:4, 6:(5 + length(x)))]
-  }
-
-  data <- subset(data, (data[, tname] == tmin1 | data[, tname] == t))
-
-  if (panel) {
-    data <- make_balanced_panel(data, idname, tname)
-  }
-
-  data <- droplevels(data)
-
-  if (!(is.null(x))) {
-    cov.data <- data
-    cov.data$group <- as.factor(paste(cov.data[, treat], cov.data[, tname], sep = "-"))
-    xmat <- cov.data[, x]
-    first.stage <- lm(cov.data[, yname] ~ -1 + cov.data[, cov.data$group] +
-      as.matrix(xmat))
-    bet <- coef(first.stage)[5:length(coef(first.stage))]
-    yfit <- cov.data[, yname] - as.matrix(xmat) %*% bet
-    data[, yname] <- yfit
-  }
-
-  treated.t    <- data[data[, tname] == t    & data[, treat] == 1, ]
-  treated.tmin1  <- data[data[, tname] == tmin1 & data[, treat] == 1, ]
-  untreated.t    <- data[data[, tname] == t    & data[, treat] == 0, ]
-  untreated.tmin1 <- data[data[, tname] == tmin1 & data[, treat] == 0, ]
-
-  q1  <- quantile(treated.t[, yname], probs = probs)
-  q0  <- quantile(treated.tmin1[, yname], probs = probs) +
-           mean(untreated.t[, yname]) - mean(untreated.tmin1[, yname])
-  att <- mean(treated.t[, yname]) -
-           (mean(treated.tmin1[, yname]) + mean(untreated.t[, yname]) -
-            mean(untreated.tmin1[, yname]))
-
-  QTE(ate = att, qte = (q1 - q0), probs = probs)
-}
-# nolint end: object_name_linter
-
-
-# --- Deprecated two-period wrapper -------------------------------------------
-
-#' @title MDiD
-#'
-#' @description \strong{Deprecated.} Use \code{\link{mdid}} instead.
-#'
-#'   \code{MDiD} is a legacy two-period wrapper for the Mean
-#'   Difference-in-Differences estimator. The modern replacement
-#'   \code{\link{mdid}} uses a \code{yname}/\code{gname}/\code{tname}
-#'   interface and supports staggered treatment adoption natively.
-#'
-#' @param formla formula of the form \code{y ~ treat}.
-#' @param xformla optional one-sided covariate formula (unused in this
-#'   estimator; accepted for consistency with other wrappers).
-#' @param t post-treatment period.
-#' @param tmin1 pre-treatment period.
-#' @param tname name of the time column.
-#' @param data data.frame.
-#' @param panel logical; whether data are panel.
-#' @param se logical; whether to compute bootstrap SEs.
-#' @param idname name of the unit id column (required when \code{panel = TRUE}).
-#' @param alp significance level.
-#' @param probs quantile grid.
-#' @param iters bootstrap iterations.
-#' @param retEachIter logical; return per-iteration results.
-#' @param biters alias for \code{iters}; takes precedence if supplied.
-#'
-#' @return \code{QTE} object.
-#'
-#' @seealso \code{\link{mdid}}
-#'
-#' @name MDiD-deprecated
-#' @aliases MDiD
-#' @keywords internal
-#' @export
-# nolint start: object_name_linter
-MDiD <- function(formla, xformla = NULL, t, tmin1, tname, data,
-                 panel = FALSE, se = TRUE,
-                 idname = NULL,
-                 alp = 0.05, probs = seq(0.05, 0.95, 0.05), iters = 100,
-                 retEachIter = FALSE,
-                 biters = NULL) {
-  .Deprecated(msg = paste0(
-    "MDiD() is deprecated. The replacement mdid() uses a different data model: ",
-    "specify outcome, group, and time variables by name (yname, gname, tname) ",
-    "and provide gname as a column holding each unit's first treatment period ",
-    "(0 = never-treated), rather than a formula and explicit t/tmin1 values. ",
-    "See ?mdid."
-  ))
-  # biters is an alias matching the did/ptetools API (MDiD has no parallel support)
-  if (!is.null(biters)) iters <- biters
-
-  form <- as.formula(formla)
-  dta <- model.frame(terms(form, data = data), data = data)
-  colnames(dta) <- c("y", "treatment")
-  yname <- "y"
-  treat <- "treatment"
-  data <- cbind.data.frame(dta, data)
-
-  data <- subset(data, (data[, tname] == tmin1 | data[, tname] == t))
-
-  if (panel) {
-    if (is.null(idname)) stop("Must provide idname when using panel option")
-    data <- make_balanced_panel(data, idname, tname)
-  }
-
-  data <- droplevels(data)
-
-  treated.t      <- data[data[, tname] == t    & data[, treat] == 1, ]
-  treated.tmin1  <- data[data[, tname] == tmin1 & data[, treat] == 1, ]
-  untreated.t    <- data[data[, tname] == t    & data[, treat] == 0, ]
-  untreated.tmin1 <- data[data[, tname] == tmin1 & data[, treat] == 0, ]
-
-  mdid_result <- compute.MDiD(formla, xformla, t, tmin1, tname, data, panel, idname, probs) # nolint: object_name_linter
-
-  if (se) {
-    eachIter <- list()
-    if (panel) {
-      treated.t      <- treated.t[order(treated.t[, idname]), ]
-      treated.tmin1  <- treated.tmin1[order(treated.tmin1[, idname]), ]
-      untreated.t    <- untreated.t[order(untreated.t[, idname]), ]
-      untreated.tmin1 <- untreated.tmin1[order(untreated.tmin1[, idname]), ]
-      nt <- nrow(treated.t)
-      nu <- nrow(untreated.t)
-      for (i in seq_len(iters)) {
-        randy.t <- sample(seq_len(nt), nt, replace = TRUE)
-        randy.u <- sample(seq_len(nu), nu, replace = TRUE)
-        boot.data <- rbind(
-          treated.t[randy.t, ],    untreated.t[randy.u, ],
-          treated.tmin1[randy.t, ], untreated.tmin1[randy.u, ]
-        )
-        thisIter <- compute.MDiD(formla, xformla, t, tmin1, tname, boot.data, # nolint: object_name_linter
-                                  panel = FALSE, idname, probs)
-        eachIter[[i]] <- QTE(ate = thisIter$ate, qte = thisIter$qte, probs = probs) # nolint: object_name_linter
-      }
-    } else {
-      for (i in seq_len(iters)) {
-        boot.data <- rbind(
-          treated.t[sample(nrow(treated.t),       replace = TRUE), ],
-          treated.tmin1[sample(nrow(treated.tmin1), replace = TRUE), ],
-          untreated.t[sample(nrow(untreated.t),    replace = TRUE), ],
-          untreated.tmin1[sample(nrow(untreated.tmin1), replace = TRUE), ]
-        )
-        thisIter <- compute.MDiD(formla, xformla, t, tmin1, tname, boot.data, panel, idname, probs) # nolint: object_name_linter
-        eachIter[[i]] <- QTE(ate = thisIter$ate, qte = thisIter$qte, probs = probs) # nolint: object_name_linter
-      }
-    }
-
-    SEobj <- computeSE(eachIter, mdid_result, alp = alp) # nolint: object_name_linter
-
-    QTE( # nolint: object_name_linter
-      qte = mdid_result$qte, qte.upper = SEobj$qte.upper,
-      qte.lower = SEobj$qte.lower, ate = mdid_result$ate,
-      ate.upper = SEobj$ate.upper, ate.lower = SEobj$ate.lower,
-      qte.se = SEobj$qte.se, ate.se = SEobj$ate.se,
-      alp = alp,
-      eachIterList = if (retEachIter) eachIter else NULL,
-      probs = probs
-    )
-  } else {
-    mdid_result
-  }
-}
-# nolint end: object_name_linter

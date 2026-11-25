@@ -12,9 +12,11 @@ lou_qtt(
   data,
   xformula = ~1,
   lagged_outcome_cov = TRUE,
-  est_method = c("ipw", "or", "aipw"),
+  est_method = c("ipw", "reg", "aipw"),
+  cond_dist = c("qr", "dr"),
   panel = TRUE,
   weightsname = NULL,
+  clustervars = NULL,
   control_group = "notyettreated",
   anticipation = 0,
   alp = 0.05,
@@ -41,14 +43,24 @@ lou_qtt(
 \item{xformula}{One-sided formula for additional covariates used in the
 propensity score and/or outcome model. Default \code{~1} uses no
 additional covariates beyond the lagged outcome (when
-\code{lagged_outcome_cov = TRUE}).}
+\code{lagged_outcome_cov = TRUE}).
+With panel data, each unit's covariates are taken from the base period
+of each group-time cell (never from a post-treatment period); with
+repeated cross sections, each observation's own values are used.}
 
 \item{lagged_outcome_cov}{Logical; if \code{TRUE} (default), the
 pre-treatment outcome is added as a covariate in both the propensity
 score and outcome models. Requires \code{panel = TRUE}.}
 
 \item{est_method}{Estimation method: \code{"ipw"} (default),
-\code{"or"}, or \code{"aipw"}. See Details.}
+\code{"reg"} (\code{"or"} is a deprecated alias), or \code{"aipw"}.
+See Details.}
+
+\item{cond_dist}{For \code{est_method = "reg"} or \code{"aipw"}, how the
+conditional distribution of the untreated outcome is estimated:
+\code{"qr"} (default) for quantile regression or \code{"dr"} for
+distribution regression. See \code{\link{cic_gt}}. Ignored for
+\code{"ipw"}.}
 
 \item{panel}{Logical; \code{TRUE} (default) for panel data,
 \code{FALSE} for repeated cross sections. \code{lagged_outcome_cov = TRUE}
@@ -56,6 +68,12 @@ requires \code{panel = TRUE}.}
 
 \item{weightsname}{Name of the column in \code{data} containing sampling
 weights. Default \code{NULL} uses equal weights.}
+
+\item{clustervars}{Name of a column in \code{data} to cluster standard
+errors on, in addition to \code{idname} (as in \code{did::att_gt()}):
+one variable, constant over time within each unit. Default \code{NULL}
+clusters at the unit level. With the empirical bootstrap, whole clusters
+are resampled.}
 
 \item{control_group}{Which units to use as the comparison group:
 \code{"notyettreated"} (default) or \code{"nevertreated"}.}
@@ -106,7 +124,7 @@ Three estimation methods are available:
 \item{\code{"ipw"}}{Propensity-score reweighting. Control units are
 reweighted by \eqn{\hat p(X,Y_{\text{pre}})/(1-\hat p(X,Y_{\text{pre}}))}
 to approximate the covariate distribution of the treated group.}
-\item{\code{"or"}}{Outcome regression. A quantile regression model is
+\item{\code{"reg"}}{Outcome regression. A quantile regression model is
 fit on control units' post-period outcomes as a function of
 \eqn{(X, Y_{\text{pre}})}, then predicted at treated units to
 construct the counterfactual distribution (Melly 2006;
@@ -123,6 +141,38 @@ three methods reduce to a simple distribution comparison within each
 The ATT analogue (without the QTT) for staggered adoption under
 lagged-outcome unconfoundedness is developed in Callaway (2023).
 }
+\section{Discrete outcomes}{
+
+Quantile treatment effects usually require a continuous outcome. With
+mass points (e.g. many zeros) or few distinct values, quantiles jump and
+effects at quantiles inside a mass point are 0 by construction;
+identification based on ranks or quantile functions (change-in-changes,
+quantile DiD, the panel and distributional DiD copula arguments) only
+bounds the effects (Athey and Imbens 2006, Section 4); and bootstrap
+inference for quantiles can be unreliable. The estimators warn (once per
+call, class \code{qte_discrete_outcome}) when more than 10\\% of the
+outcome's observations share one value or it takes at most 20 distinct
+values, across all groups and periods; the thresholds are the options
+\code{qte.mass_point_tol} and \code{qte.discrete_n_unique}. The
+diagnostics are returned as \code{outcome_discreteness}.
+\code{\link{cdf_did}} is identified for discrete outcomes.
+}
+
+\section{Repeated cross sections}{
+
+\code{cic()}, \code{qdid()}, \code{mdid()}, \code{cdf_did()} and
+\code{lou_qtt(lagged_outcome_cov = FALSE)} also work with repeated cross
+sections (\code{panel = FALSE}; \code{idname} not needed). Without
+covariates they use only each period's outcome distributions, so on
+panel data the estimates are the same either way; the standard errors
+differ, because the bootstrap then resamples observations rather than
+units. Some things need the same units in several periods and so
+require panel data: \code{ddid()} (each comparison unit's change over
+time), \code{panel_qtt()} (the copula between periods), the lagged
+outcome in \code{lou_qtt()}, and \code{gt_type = "qott"} (the
+distribution of individual treatment effects).
+}
+
 \examples{
 \donttest{
 data(mpdta, package = "did")

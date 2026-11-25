@@ -4,10 +4,9 @@
 #   cic_gt is the 2x2 workhorse used directly as a ptetools attgt_fun.
 #   cic is the unified user-facing function covering two-period and staggered
 #   treatment adoption for both panel and repeated cross sections data.
-#   CiC is a deprecated alias retained for backwards compatibility.
-#   compute.CiC is an unexported helper kept only to support the deprecated CiC.
+#   (The deprecated two-period CiC() was removed in v2.1.0.)
 # Author: Brant Callaway
-# Last update: 2026-05-22
+# Last update: 2026-11-24
 # Date created: 2026-05-18
 # =============================================================================
 
@@ -27,8 +26,16 @@
 #'   (unit identifier), and any covariate columns referenced by
 #'   \code{xformula}.
 #' @param xformula One-sided formula for covariates. Default \code{~1} uses no
-#'   covariates. With covariates, covariate-conditioned quantile regressions
-#'   are used following Athey and Imbens (2006).
+#'   covariates. With covariates, the control group's conditional outcome
+#'   distributions are estimated by the method in \code{cond_dist}, following
+#'   Athey and Imbens (2006).
+#' @param cond_dist How the conditional distributions are estimated when
+#'   \code{xformula} has covariates: \code{"qr"} (default) for quantile
+#'   regression at the percentiles 0.01, ..., 0.99, or \code{"dr"} for
+#'   distribution regression (a logit of \eqn{1\{Y \le y\}} on the covariates
+#'   at a grid of thresholds; Chernozhukov, Fernandez-Val and Melly 2013).
+#'   Distribution regression handles outcomes with mass points (e.g. many
+#'   zeros) naturally. Ignored without covariates.
 #' @param ... Additional arguments passed through by \code{ptetools}; not used
 #'   directly.
 #'
@@ -43,8 +50,14 @@
 #'   Athey, Susan and Guido Imbens. ``Identification and Inference in Nonlinear
 #'   Difference-in-Differences Models.'' Econometrica 74(2), pp. 431-497, 2006.
 #'
+#'   Chernozhukov, Victor, Ivan Fernandez-Val and Blaise Melly. ``Inference on
+#'   Counterfactual Distributions.'' Econometrica 81(6), pp. 2205-2268, 2013.
+#'
 #' @export
-cic_gt <- function(gt_data, xformula = ~1, ...) {
+cic_gt <- function(gt_data, xformula = ~1, cond_dist = c("qr", "dr"), ...) {
+  cond_dist <- match.arg(cond_dist)
+  # covariates fixed at their base-period values (panel data)
+  gt_data <- base_period_covariates(gt_data, xformula)
   gt_data <- droplevels(gt_data)
 
   # extract the four (period x treatment-status) groups
@@ -70,20 +83,20 @@ cic_gt <- function(gt_data, xformula = ~1, ...) {
   # distributions to obtain counterfactual outcomes (A-I 2006, eq. 16).
   # Weighted CDFs are used; reduces to ecdf()/quantile(type=1) for uniform weights.
 
-  # Weighted ECDF of ctrl pre-period: F(y) = sum(w_i * 1(Y_i <= y)).
-  # Vectorised dot product handles ties and out-of-range values correctly.
-  u <- vapply(Y_pre_trt,
-              function(y) sum(w_pre_ctrl * (Y_pre_ctrl <= y)),
-              numeric(1))
+  # Weighted ECDF of ctrl pre-period: F(y) = sum(w_i * 1(Y_i <= y)),
+  # evaluated at each treated pre-period outcome (handles ties and
+  # out-of-range values; see wcdf_at()).
+  u <- wcdf_at(Y_pre_ctrl, w_pre_ctrl, Y_pre_trt)
 
   # Weighted type-1 quantile of ctrl post-period: smallest y with CDF >= p.
   ord_post_c <- order(Y_post_ctrl)
   y_post_c_s <- Y_post_ctrl[ord_post_c]
   cdf_post_c <- cumsum(w_post_ctrl[ord_post_c])
-  kcic <- y_post_c_s[vapply(u, function(p) {
-    idx <- which(cdf_post_c >= p)
-    if (length(idx) == 0L) length(y_post_c_s) else idx[1L]
-  }, integer(1))]
+  # u and cdf_post_c are both cumulative sums of weights; when they are
+  # equal in exact arithmetic, summation rounding (which differs across
+  # platforms) must not flip the order statistic: same tolerance as wquant()
+  tol <- sqrt(.Machine$double.eps)
+  kcic <- y_post_c_s[first_geq(cdf_post_c, u - tol)]
 
   att <- weighted.mean(Y_post_trt, w_post_trt) - weighted.mean(kcic, w_pre_trt)
   F0  <- BMisc::weighted_ecdf(kcic,       weights = w_pre_trt)  # nolint: object_name_linter
@@ -102,20 +115,16 @@ cic_gt <- function(gt_data, xformula = ~1, ...) {
     post_s <- gt_data[gt_data$name == "post" & gt_data$D == 1, ]
     pre_s  <- pre_s[order(pre_s$id), ]
     post_s <- post_s[order(post_s$id), ]
-    u_s    <- vapply(pre_s$Y,
-                     function(y) sum(w_pre_ctrl * (Y_pre_ctrl <= y)),
-                     numeric(1))
-    kcic_s <- y_post_c_s[vapply(u_s, function(p) {
-      idx <- which(cdf_post_c >= p)
-      if (length(idx) == 0L) length(y_post_c_s) else idx[1L]
-    }, integer(1))]
+    u_s    <- wcdf_at(Y_pre_ctrl, w_pre_ctrl, pre_s$Y)
+    kcic_s <- y_post_c_s[first_geq(cdf_post_c, u_s - tol)]
     w_post_trt_s <- post_s$.w / sum(post_s$.w)
     Fte    <- BMisc::weighted_ecdf(post_s$Y - kcic_s, weights = w_post_trt_s) # nolint: object_name_linter
   }
 
-  # covariate adjustment via conditional quantile regression (Athey-Imbens 2006).
-  # Sampling weights are passed to rq() so the quantile regressions respect
-  # the same weights used for the ATT and CDF calculations.
+  # covariate adjustment via conditional distributions (Athey-Imbens 2006),
+  # estimated by quantile regression (cond_dist = "qr") or distribution
+  # regression ("dr"). Sampling weights enter both, so they match the weights
+  # used for the ATT and CDF calculations.
   if (length(BMisc::rhs_vars(xformula)) > 0) {
     u_seq <- seq(0.01, 0.99, 0.01)
 
@@ -131,25 +140,27 @@ cic_gt <- function(gt_data, xformula = ~1, ...) {
     }
 
     yformla  <- BMisc::toformula("Y", BMisc::rhs_vars(xformula))
-    QR0t     <- suppressWarnings(rq(yformla, data = post_ctrl, tau = u_seq, weights = .w)) # nolint: object_name_linter
-    QR0tmin1 <- suppressWarnings(rq(yformla, data = pre_ctrl,  tau = u_seq, weights = .w)) # nolint: object_name_linter
-    n1       <- nrow(pre_trt)
+    # factor levels of the whole cell, so every fit has the same columns;
+    # warn when a fit is evaluated at covariates it doesn't span (#16)
+    xlev <- cond_xlevels(yformla, gt_data)
+    check_cond_support(yformla, list(pre_ctrl, post_ctrl), pre_trt)
+    # post-period control fit: the same for all cohorts treated by this
+    # period, so reused across those cells (cache = TRUE)
+    fit0t    <- cond_fit(yformla, post_ctrl, cond_dist, u_seq, cache = TRUE,
+                         xlev = xlev)
+    fit0tmin1 <- cond_fit(yformla, pre_ctrl, cond_dist, u_seq, xlev = xlev)
 
-    QR0tmin1F <- predict(QR0tmin1, newdata = pre_trt, type = "Fhat", stepfun = TRUE) # nolint: object_name_linter
-    F0tmin1   <- sapply(seq_len(n1), function(i) QR0tmin1F[[i]](pre_trt$Y[i]))       # nolint: object_name_linter
+    # conditional ranks from rearranged (monotone) conditional distributions;
+    # see qr_sorted_quantiles() and dr_cdf_matrix()
+    F0tmin1 <- cond_cdf(fit0tmin1, pre_trt, pre_trt$Y) # nolint: object_name_linter
 
-    if (mean(F0tmin1 >= 0.99) + mean(F0tmin1 <= 0.01) > 0.1) {
-      warning(paste0(
-        "many treated units have extreme ranks in the control pre-period ",
-        "distribution; CiC support conditions may be violated"
-      ))
-    }
+    y0t <- cond_quantile(fit0t, pre_trt, F0tmin1)
 
-    QR0tQ <- predict(QR0t, newdata = pre_trt, type = "Qhat", stepfun = TRUE) # nolint: object_name_linter
-    y0t   <- sapply(seq_len(n1), function(i) QR0tQ[[i]](F0tmin1[i]))
-
-    att <- weighted.mean(Y_post_trt, w_post_trt) - weighted.mean(y0t, w_pre_trt)
+    # weights from pre_trt itself, so they follow its id order (as y0t does);
+    # w_pre_trt above is in gt_data row order (#14)
     w_pre_trt_n  <- pre_trt$.w / sum(pre_trt$.w)
+    att <- weighted.mean(Y_post_trt, w_post_trt) -
+      weighted.mean(y0t, w_pre_trt_n)
     F0  <- BMisc::weighted_ecdf(y0t, weights = w_pre_trt_n) # nolint: object_name_linter
 
     if (panel) {
@@ -181,11 +192,21 @@ cic_gt <- function(gt_data, xformula = ~1, ...) {
 #'   \code{panel = TRUE}.
 #' @param data A data frame.
 #' @param panel Logical; \code{TRUE} (default) for panel data,
-#'   \code{FALSE} for repeated cross sections.
+#'   \code{FALSE} for repeated cross sections (see the section on repeated
+#'   cross sections).
 #' @param xformula One-sided formula for covariates used in the covariate
 #'   adjustment. Default \code{~1} uses no covariates.
+#'   With panel data, each unit's covariates are taken from the base period
+#'   of each group-time cell (never from a post-treatment period); with
+#'   repeated cross sections, each observation's own values are used.
+#' @inheritParams cic_gt
 #' @param weightsname Name of the column in \code{data} containing sampling
 #'   weights. Default \code{NULL} uses equal weights.
+#' @param clustervars Name of a column in \code{data} to cluster standard
+#'   errors on, in addition to \code{idname} (as in \code{did::att_gt()}):
+#'   one variable, constant over time within each unit. Default \code{NULL}
+#'   clusters at the unit level. With the empirical bootstrap, whole clusters
+#'   are resampled.
 #' @param control_group Which units to use as the comparison group:
 #'   \code{"notyettreated"} (default) or \code{"nevertreated"}.
 #' @param anticipation Number of periods of anticipation. Default \code{0}.
@@ -228,6 +249,32 @@ cic_gt <- function(gt_data, xformula = ~1, ...) {
 #' summary(res_qtt)
 #' }
 #'
+#' @section Discrete outcomes:
+#'   Quantile treatment effects usually require a continuous outcome. With
+#'   mass points (e.g. many zeros) or few distinct values, quantiles jump and
+#'   effects at quantiles inside a mass point are 0 by construction;
+#'   identification based on ranks or quantile functions (change-in-changes,
+#'   quantile DiD, the panel and distributional DiD copula arguments) only
+#'   bounds the effects (Athey and Imbens 2006, Section 4); and bootstrap
+#'   inference for quantiles can be unreliable. The estimators warn (once per
+#'   call, class \code{qte_discrete_outcome}) when more than 10\% of the
+#'   outcome's observations share one value or it takes at most 20 distinct
+#'   values, across all groups and periods; the thresholds are the options
+#'   \code{qte.mass_point_tol} and \code{qte.discrete_n_unique}. The
+#'   diagnostics are returned as \code{outcome_discreteness}.
+#'   \code{\link{cdf_did}} is identified for discrete outcomes.
+#' @section Repeated cross sections:
+#'   \code{cic()}, \code{qdid()}, \code{mdid()}, \code{cdf_did()} and
+#'   \code{lou_qtt(lagged_outcome_cov = FALSE)} also work with repeated cross
+#'   sections (\code{panel = FALSE}; \code{idname} not needed). Without
+#'   covariates they use only each period's outcome distributions, so on
+#'   panel data the estimates are the same either way; the standard errors
+#'   differ, because the bootstrap then resamples observations rather than
+#'   units. Some things need the same units in several periods and so
+#'   require panel data: \code{ddid()} (each comparison unit's change over
+#'   time), \code{panel_qtt()} (the copula between periods), the lagged
+#'   outcome in \code{lou_qtt()}, and \code{gt_type = "qott"} (the
+#'   distribution of individual treatment effects).
 #' @export
 cic <- function(yname,
                 gname,
@@ -236,7 +283,9 @@ cic <- function(yname,
                 data,
                 panel         = TRUE,
                 xformula      = ~1,
+                cond_dist     = c("qr", "dr"),
                 weightsname   = NULL,
+                clustervars   = NULL,
                 control_group = "notyettreated",
                 anticipation  = 0,
                 alp           = 0.05,
@@ -246,6 +295,7 @@ cic <- function(yname,
                 ret_quantile  = NULL,
                 gt_type       = "att",
                 probs         = NULL) {
+  cond_dist <- match.arg(cond_dist)
 
   if (gt_type == "qott" && !isTRUE(panel)) {
     stop(paste0(
@@ -270,19 +320,29 @@ cic <- function(yname,
     function(al, p, eg) ptetools::attgt_pte_aggregations(al, p)
   }
 
-  ptetools::pte(
+  # warn once if the outcome looks discrete (#17): this estimator's ATT
+  # and QTT both come from a counterfactual distribution built from
+  # ranks or quantiles. Never per (g,t) cell or bootstrap draw.
+  disc <- check_discrete_outcome(data, yname, weightsname,
+                                 warn = TRUE)
+
+  res <- ptetools::pte(
     yname           = yname,
     gname           = gname,
     tname           = tname,
     idname          = idname,
-    data            = data,
+    data            = keep_used_columns(data, yname, gname, tname, idname,
+                                        weightsname, xformula,
+                                        clustervars = clustervars),
     panel           = panel,
     setup_pte_fun   = ptetools::setup_pte,
     subset_fun      = subset_fun,
     attgt_fun       = cic_gt,
     aggte_fun       = aggte_fun,
     xformula        = xformula,
+    cond_dist       = cond_dist,
     weightsname     = weightsname,
+    clustervars     = clustervars,
     control_group   = control_group,
     anticipation    = anticipation,
     cband           = cband,
@@ -294,160 +354,6 @@ cic <- function(yname,
     gt_type         = gt_type,
     probs           = probs
   )
+  res$outcome_discreteness <- disc
+  res
 }
-
-
-# --- Deprecated two-period workhorse (supports CiC only) --------------------
-
-# Kept only to support the deprecated CiC() wrapper below. Do not use in new
-# code; use cic_gt() instead.
-# nolint start: object_name_linter
-compute.CiC <- function(qp) {
-  setupData(qp)
-  data <- droplevels(data) # nolint: object_usage_linter
-
-  F.treatedcf.t <- ecdf(quantile(untreated.t[, yname],
-    probs = F.untreated.tmin1(treated.tmin1[, yname]), type = 1
-  ))
-  att <- mean(treated.t[, yname]) -
-    mean(quantile(untreated.t[, yname],
-      probs = F.untreated.tmin1(treated.tmin1[, yname]), type = 1
-    ))
-
-  QR0tQ <- NULL
-  QR1t  <- NULL
-  if (!is.null(xformla)) { # nolint: object_usage_linter
-    u        <- seq(.01, .99, .01)
-    yformla  <- toformula("y", rhs_vars(xformla))
-    QR0t     <- rq(yformla, data = untreated.t,     tau = u)
-    QR0tmin1 <- rq(yformla, data = untreated.tmin1, tau = u)
-    QR1t     <- rq(yformla, data = treated.t,       tau = u)
-
-    n1tmin1   <- nrow(treated.tmin1)
-    QR0tmin1F <- predict(QR0tmin1, newdata = treated.tmin1, type = "Fhat", stepfun = TRUE)
-    F0tmin1   <- sapply(seq_len(n1tmin1), function(i) QR0tmin1F[[i]](treated.tmin1$y[i]))
-    QR0tQ     <- predict(QR0t, newdata = treated.tmin1, type = "Qhat", stepfun = TRUE)
-    y0t       <- sapply(seq_len(n1tmin1), function(i) QR0tQ[[i]](F0tmin1[i]))
-
-    F.treatedcf.t <- ecdf(y0t)
-    att <- mean(treated.t[, yname]) - mean(y0t)
-  }
-
-  q1  <- quantile(treated.t[, yname], probs = probs, type = 1) # nolint: object_usage_linter
-  q0  <- quantile(F.treatedcf.t, probs = probs, type = 1)
-  out <- QTE(
-    F.treated.t       = F.treated.t,
-    F.treated.t.cf    = F.treatedcf.t,
-    F.treated.tmin1   = F.treated.tmin1,
-    F.untreated.t     = F.untreated.t,
-    F.untreated.tmin1 = F.untreated.tmin1,
-    condQ.treated.t.cf = QR0tQ,
-    condQ.treated.t    = QR1t,
-    ate = att, qte = (q1 - q0), probs = probs
-  )
-  class(out) <- "QTE"
-  out
-}
-# nolint end: object_name_linter
-
-
-# --- Deprecated two-period wrapper -------------------------------------------
-
-#' @title CiC
-#'
-#' @description \strong{Deprecated.} Use \code{\link{cic}} instead.
-#'
-#'   \code{CiC} is a legacy two-period wrapper for the Change in Changes
-#'   estimator. It accepts a formula and explicit \code{t}/\code{tmin1} time
-#'   period arguments. The modern replacement \code{\link{cic}} uses a
-#'   \code{yname}/\code{gname}/\code{tname} interface and supports staggered
-#'   treatment adoption natively via \code{ptetools}.
-#'
-#' @param formla formula of the form \code{y ~ treat}.
-#' @param xformla optional one-sided covariate formula.
-#' @param t post-treatment period.
-#' @param tmin1 pre-treatment period.
-#' @param tname name of the time column.
-#' @param data data.frame.
-#' @param panel logical; whether data are panel.
-#' @param se logical; whether to compute bootstrap SEs.
-#' @param idname name of the unit id column (required when \code{panel = TRUE}).
-#' @param alp significance level.
-#' @param probs quantile grid.
-#' @param iters bootstrap iterations.
-#' @param pl logical; parallel bootstrap.
-#' @param cores number of cores.
-#' @param retEachIter logical; return per-iteration results.
-#'
-#' @return \code{QTE} object.
-#'
-#' @seealso \code{\link{cic}}
-#'
-#' @name CiC-deprecated
-#' @aliases CiC
-#' @keywords internal
-#' @export
-# nolint start: object_name_linter
-CiC <- function(formla, xformla = NULL, t, tmin1, tname, data,
-                panel = FALSE,
-                se = TRUE, idname = NULL,
-                alp = 0.05, probs = seq(0.05, 0.95, 0.05), iters = 100,
-                pl = FALSE, cores = 2,
-                retEachIter = FALSE) {
-  .Deprecated(msg = paste0(
-    "CiC() is deprecated. The replacement cic() uses a different data model: ",
-    "specify outcome, group, and time variables by name (yname, gname, tname) ",
-    "and provide gname as a column holding each unit's first treatment period ",
-    "(0 = never-treated), rather than a formula and explicit t/tmin1 values. ",
-    "See ?cic and vignette('staggered-adoption', package = 'qte')."
-  ))
-
-  if (panel) {
-    data <- panelize.data(data, idname, tname, t, tmin1)
-  } else {
-    data <- subset(data, (data[, tname] == tmin1 | data[, tname] == t))
-  }
-
-  qp <- QTEparams(
-    formla = formla, xformla = xformla, t = t, tmin1 = tmin1,
-    tname = tname, data = data, panel = panel,
-    idname = idname, probs = probs,
-    iters = iters, bootstrapiter = FALSE, alp = alp,
-    se = se, retEachIter = retEachIter,
-    pl = pl, cores = cores
-  )
-
-  if (panel) {
-    panel.checks(qp)
-  }
-
-  cic_result <- compute.CiC(qp)
-
-  if (se) {
-    qp$bootstrapiter <- TRUE
-    SEobj <- bootstrap(qp, cic_result, compute.CiC) # nolint: object_name_linter
-    QTE( # nolint: object_name_linter
-      qte               = cic_result$qte,
-      qte.upper         = SEobj$qte.upper,
-      F.treated.t       = cic_result$F.treated.t,
-      F.untreated.t     = cic_result$F.untreated.t,
-      F.treated.t.cf    = cic_result$F.treated.t.cf,
-      F.treated.tmin1   = cic_result$F.treated.tmin1,
-      F.untreated.tmin1 = cic_result$F.untreated.tmin1,
-      condQ.treated.t    = cic_result$condQ.treated.t,
-      condQ.treated.t.cf = cic_result$condQ.treated.t.cf,
-      qte.lower    = SEobj$qte.lower,
-      ate          = cic_result$ate,
-      ate.upper    = SEobj$ate.upper,
-      ate.lower    = SEobj$ate.lower,
-      qte.se       = SEobj$qte.se,
-      ate.se       = SEobj$ate.se,
-      c            = SEobj$c,
-      eachIterList = eachIter,
-      probs        = probs
-    )
-  } else {
-    cic_result
-  }
-}
-# nolint end: object_name_linter

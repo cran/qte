@@ -10,7 +10,7 @@
 #   All three attgt_fun/subset_fun functions follow the ptetools patterns used
 #   by cic_gt, qdid_gt, mdid_gt, and ddid_gt.
 # Author: Brant Callaway
-# Last update: 2026-05-21
+# Last update: 2026-11-24
 # Date created: 2026-05-20
 # =============================================================================
 
@@ -19,19 +19,23 @@
 #' @title Three-Period Subset for Panel QTT
 #'
 #' @description Custom \code{subset_fun} for \code{ptetools::pte} that pulls
-#'   three time periods for each (g,t) cell: pre2, pre1 = g - anticipation - 1,
-#'   and post = tp. How pre2 is chosen depends on \code{pre_copula}:
+#'   three time periods for each (g,t) cell: pre2, pre1 (the last period at
+#'   least \code{anticipation} before g, in units of the time variable, as in
+#'   \code{did::att_gt()}), and post = tp. Periods below are counted as
+#'   positions in the list of time periods. How pre2 is chosen depends on
+#'   \code{pre_copula}:
 #'
 #'   \describe{
-#'     \item{\code{"long"} (default)}{pre2 = 2*(g - anticipation) - tp - 2, so
-#'       the copula-transfer window matches the event horizon e = tp - (g -
-#'       anticipation). Cells where this pre2 does not exist in the data return
-#'       empty data and \code{panel_qtt_gt} returns \code{NA}.}
-#'     \item{\code{"short"}}{pre2 = g - anticipation - 2 (fixed at treatment
-#'       onset regardless of e).}
+#'     \item{\code{"long"} (default)}{pre2 = 2*pre1 - tp, so the
+#'       copula-transfer window is as many periods before pre1 as tp is after
+#'       it. Cells where this pre2 does not exist in the data return empty
+#'       data and \code{panel_qtt_gt} returns \code{NA}.}
+#'     \item{\code{"short"}}{pre2 = pre1 - 1 (fixed at treatment onset
+#'       regardless of e).}
 #'   }
 #'
-#'   For pre-treatment placebo cells (\code{tp < g - anticipation}), the base
+#'   For pre-treatment placebo cells (\code{tp < g - anticipation}, in
+#'   calendar time), the base
 #'   always slides backwards regardless of \code{pre_copula}:
 #'   pre2 = tp - 2, pre1 = tp - 1.  \code{panel_qtt()} sets
 #'   \code{required_pre_periods = 2} so that the minimum tp in \code{tlist}
@@ -42,7 +46,8 @@
 #' @param tp The current time period.
 #' @param control_group \code{"notyettreated"} (default) or
 #'   \code{"nevertreated"}.
-#' @param anticipation Number of periods of anticipation. Default \code{0}.
+#' @param anticipation Anticipation, in units of the time variable. Default
+#'   \code{0}.
 #' @param pre_copula \code{"long"} (default) or \code{"short"}. See above.
 #' @param ... Additional arguments; silently ignored.
 #'
@@ -56,17 +61,23 @@ three_period_subset <- function(data,
                                 anticipation  = 0,
                                 pre_copula    = "long",
                                 ...) {
-  effective_g <- g - anticipation
+  # anticipation is in units of the time variable, as in did::att_gt() and
+  # ptetools: a cell is post-treatment if tp >= g - anticipation in calendar
+  # time, and pre1 is the last period at least `anticipation` before g
+  post <- ptetools::pte_calendar_time(data, tp) >=
+    ptetools::pte_calendar_time(data, g) - anticipation
 
-  if (tp >= effective_g) {
+  if (post) {
     # post-treatment cell: pre1 fixed at treatment onset; pre2 depends on pre_copula
-    pre1 <- effective_g - 1L
+    pre1 <- ptetools::pte_base_period(data, g, tp, anticipation,
+                                      base_period = "universal")
     pre2 <- if (pre_copula == "long") {
-      # extend copula window to match event horizon e = tp - effective_g
-      2L * effective_g - tp - 2L
+      # extend copula window to match the event horizon: as many periods
+      # before pre1 as tp is after it
+      2L * pre1 - tp
     } else {
       # anchor both base periods at treatment onset
-      effective_g - 2L
+      pre1 - 1L
     }
   } else {
     # pre-test placebo cell: slide base backwards regardless of pre_copula
@@ -74,21 +85,29 @@ three_period_subset <- function(data,
     pre2 <- tp - 2L
   }
 
-  if (control_group == "notyettreated") {
-    this.data <- subset(data, G == g | G > tp | G == 0)
+  # select rows using ptetools' internal (dot-prefixed) columns, never the
+  # user's own columns (ptetools #13)
+  # not-yet-treated controls: not treated or anticipating treatment by tp
+  # (the latest period of the cell), as in did::att_gt()
+  grp <- data$.G
+  in_group <- if (control_group == "notyettreated") {
+    grp == g | grp == 0 |
+      ptetools::pte_calendar_time(data, grp) >
+        ptetools::pte_calendar_time(data, tp) + anticipation
   } else {
-    this.data <- subset(data, G == g | G == 0)
+    grp == g | grp == 0
   }
+  in_period <- data$.period %in% c(pre2, pre1, tp)
+  this.data <- data[which(in_group & in_period), , drop = FALSE]
 
-  this.data <- subset(this.data, period %in% c(pre2, pre1, tp))
-
-  this.data$name <- ifelse(this.data$period == tp,  "post",
-                    ifelse(this.data$period == pre1, "pre1", "pre2"))
-  this.data$D    <- 1L * (this.data$G == g)
+  this.data$name <- ifelse(this.data$.period == tp,  "post",
+                    ifelse(this.data$.period == pre1, "pre1", "pre2"))
+  this.data$D    <- 1L * (this.data$.G == g)
+  # gt_data_frame() adds the plain cell columns G, id, period and Y
   this.data      <- ptetools::gt_data_frame(this.data)
 
-  n1     <- length(unique(this.data$id))
-  disidx <- unique(data$id) %in% unique(this.data$id)
+  n1     <- length(unique(this.data$.id))
+  disidx <- unique(data$.id) %in% unique(this.data$.id)
 
   list(gt_data = this.data, n1 = n1, disidx = disidx)
 }
@@ -125,6 +144,10 @@ three_period_subset <- function(data,
 #'   (\code{"pre2"}, \code{"pre1"}, \code{"post"}), \code{D}, \code{Y},
 #'   \code{id}, \code{.w}, and any covariate columns.
 #' @param xformula One-sided formula for covariates. Default \code{~1}.
+#' @param cond_dist How the conditional distributions are estimated when
+#'   \code{xformula} has covariates: \code{"qr"} (default) for quantile
+#'   regression or \code{"dr"} for distribution regression. See
+#'   \code{\link{cic_gt}}. Ignored without covariates.
 #' @param ... Additional arguments passed through by \code{ptetools}.
 #'
 #' @return A \code{ptetools::attgt_noif} object with \code{att} and, in
@@ -139,7 +162,10 @@ three_period_subset <- function(data,
 #' @importFrom quantreg rq
 #'
 #' @export
-panel_qtt_gt <- function(gt_data, xformula = ~1, ...) {
+panel_qtt_gt <- function(gt_data, xformula = ~1, cond_dist = c("qr", "dr"), ...) {
+  cond_dist <- match.arg(cond_dist)
+  # covariates fixed at their values in pre2, the earliest period used
+  gt_data <- base_period_covariates(gt_data, xformula, ref = "pre2")
   gt_data <- droplevels(gt_data)
 
   # extract the five cells; pre2_ctrl is not needed for identification
@@ -180,33 +206,21 @@ panel_qtt_gt <- function(gt_data, xformula = ~1, ...) {
   dY_trt  <- Y_pre1_trt - Y_pre2_trt   # nolint: object_name_linter
   dY_ctrl <- Y_post_ctrl - Y_pre1_ctrl  # nolint: object_name_linter
 
-  # Helper: weighted type-1 quantile (smallest y with weighted CDF >= p).
-  wquant <- function(y_vec, w_vec, probs) {
-    ord <- order(y_vec)
-    y_s <- y_vec[ord]
-    cdf <- cumsum(w_vec[ord])
-    y_s[vapply(probs, function(p) {
-      idx <- which(cdf >= p)
-      if (length(idx) == 0L) length(y_s) else idx[1L]
-    }, integer(1L))]
-  }
+  # weighted type-1 quantiles below use the package's wquant(), whose
+  # tolerance keeps the result the same across platforms
 
   # No-covariate path:
   #
   # Step 1 (Rosenblatt): transfer each treated unit's pre2 rank into a pre1 level.
   #   u_i = F_{Y^pre2|D=1}(Y^pre2_i)  — rank in the pre2 treated marginal
   #   L_i = Q_{Y^pre1|D=1}(u_i)       — pre1 level at rank u_i
-  u <- vapply(Y_pre2_trt,
-              function(y) sum(w_pre2_trt * (Y_pre2_trt <= y)),
-              numeric(1L))
+  u <- wcdf_at(Y_pre2_trt, w_pre2_trt, Y_pre2_trt)
   L <- wquant(Y_pre1_trt, w_pre1_trt, u) # nolint: object_name_linter
 
   # Step 2 (copula stability + distributional PT on changes):
   #   v_i = F_{dY^pre|D=1}(dY^pre_i)  — rank of pre-treatment change
   #   C_i = Q_{dY^ctrl}(v_i)          — ctrl change at rank v_i
-  v <- vapply(dY_trt,
-              function(dy) sum(w_pre2_trt * (dY_trt <= dy)),
-              numeric(1L))
+  v <- wcdf_at(dY_trt, w_pre2_trt, dY_trt)
   C <- wquant(dY_ctrl, w_pre1_ctrl, v) # nolint: object_name_linter
 
   kcf <- L + C
@@ -217,11 +231,11 @@ panel_qtt_gt <- function(gt_data, xformula = ~1, ...) {
   # Fte identified because kcf is unit-indexed (treated group)
   Fte <- BMisc::weighted_ecdf(Y_post_trt - kcf, weights = w_post_trt) # nolint: object_name_linter
 
-  # Covariate adjustment: four QR models replace the unconditional rank transforms.
-  # Sampling weights are passed to rq() throughout.
+  # Covariate adjustment: four conditional distribution models (quantile or
+  # distribution regression, cond_dist) replace the unconditional rank
+  # transforms. Sampling weights enter all four fits.
   if (length(BMisc::rhs_vars(xformula)) > 0) {
     u_seq   <- seq(0.01, 0.99, 0.01)
-    n1      <- nrow(pre2_trt)
     yformla <- BMisc::toformula("Y", BMisc::rhs_vars(xformula)) # nolint: object_name_linter
 
     # --- Rosenblatt step (conditioned on pre2 covariates throughout) ---
@@ -229,14 +243,16 @@ panel_qtt_gt <- function(gt_data, xformula = ~1, ...) {
     # L_i = Q(Y^pre1 | u_i, X_pre2_i, D=1) via QR on pre1 treated,
     #        predicted at pre2 covariates (copula transfers conditional rank
     #        across pre2 → pre1 marginals holding X fixed)
-    QR_Y_pre2_trt <- suppressWarnings(rq(yformla, data = pre2_trt, tau = u_seq, weights = .w)) # nolint: object_name_linter
-    QR_Y_pre1_trt <- suppressWarnings(rq(yformla, data = pre1_trt, tau = u_seq, weights = .w)) # nolint: object_name_linter
+    # factor levels of the whole cell, so every fit has the same columns;
+    # warn when a fit is evaluated at covariates it doesn't span (#16)
+    xlev <- cond_xlevels(yformla, gt_data)
+    fit_pre2_trt <- cond_fit(yformla, pre2_trt, cond_dist, u_seq, xlev = xlev)
+    fit_pre1_trt <- cond_fit(yformla, pre1_trt, cond_dist, u_seq, xlev = xlev)
 
-    QR_Y_pre2F <- predict(QR_Y_pre2_trt, newdata = pre2_trt, type = "Fhat", stepfun = TRUE) # nolint: object_name_linter
-    u <- sapply(seq_len(n1), function(i) QR_Y_pre2F[[i]](pre2_trt$Y[i]))
-
-    QR_Y_pre1Q <- predict(QR_Y_pre1_trt, newdata = pre2_trt, type = "Qhat", stepfun = TRUE) # nolint: object_name_linter
-    L <- sapply(seq_len(n1), function(i) QR_Y_pre1Q[[i]](u[i])) # nolint: object_name_linter
+    # rearranged (monotone) conditional distributions throughout; see
+    # qr_sorted_quantiles() and dr_cdf_matrix()
+    u <- cond_cdf(fit_pre2_trt, pre2_trt, pre2_trt$Y)
+    L <- cond_quantile(fit_pre1_trt, pre2_trt, u) # nolint: object_name_linter
 
     # --- Copula-stability step ---
     # QR_dY_trt: fit on treated units with pre2 covariates and dY_trt outcome
@@ -248,15 +264,16 @@ panel_qtt_gt <- function(gt_data, xformula = ~1, ...) {
     dY_ctrl_data   <- pre1_ctrl  # nolint: object_name_linter
     dY_ctrl_data$Y <- dY_ctrl
 
-    QR_dY_trt  <- suppressWarnings(rq(yformla, data = dY_trt_data,  tau = u_seq, weights = .w)) # nolint: object_name_linter
-    QR_dY_ctrl <- suppressWarnings(rq(yformla, data = dY_ctrl_data, tau = u_seq, weights = .w)) # nolint: object_name_linter
+    check_cond_support(yformla, list(dY_ctrl_data), pre1_trt)
+    fit_dy_trt  <- cond_fit(yformla, dY_trt_data,  cond_dist, u_seq,
+                            xlev = xlev)
+    fit_dy_ctrl <- cond_fit(yformla, dY_ctrl_data, cond_dist, u_seq,
+                            xlev = xlev)
 
-    QR_dY_trtF <- predict(QR_dY_trt, newdata = dY_trt_data, type = "Fhat", stepfun = TRUE) # nolint: object_name_linter
-    v <- sapply(seq_len(n1), function(i) QR_dY_trtF[[i]](dY_trt[i]))
+    v <- cond_cdf(fit_dy_trt, dY_trt_data, dY_trt)
 
-    # QR_dY_ctrl evaluated at treated pre1 covariates (matching ctrl model's X)
-    QR_dY_ctrlQ <- predict(QR_dY_ctrl, newdata = pre1_trt, type = "Qhat", stepfun = TRUE) # nolint: object_name_linter
-    C <- sapply(seq_len(n1), function(i) QR_dY_ctrlQ[[i]](v[i])) # nolint: object_name_linter
+    # control change model evaluated at treated pre1 covariates
+    C <- cond_quantile(fit_dy_ctrl, pre1_trt, v) # nolint: object_name_linter
 
     kcf <- L + C
 
@@ -300,8 +317,10 @@ panel_qtt_gt <- function(gt_data, xformula = ~1, ...) {
 #' @param extra_gt_returns List of per-cell extra returns (F0, F1, Fte ECDFs).
 #'
 #' @return A list with \code{overall_results}, \code{dyn_results},
-#'   \code{group_results}, \code{attgt_results}, \code{F0_overall},
-#'   \code{F1_overall} — matching the structure returned by
+#'   \code{group_results}, \code{attgt_results}, \code{att_results} (ATTs
+#'   aggregated with the same weights as the QTTs),
+#'   \code{qtt_minus_att_results}, \code{F0_overall}, \code{F1_overall} —
+#'   matching the structure returned by
 #'   \code{ptetools::qtt_pte_aggregations}.
 #'
 #' @keywords internal
@@ -309,7 +328,6 @@ panel_qtt_long_agg <- function(attgt.list, ptep, extra_gt_returns) {
   probs        <- if (is.null(ptep$probs)) seq(0.05, 0.95, 0.05) else ptep$probs
   anticipation <- if (!is.null(ptep$anticipation)) ptep$anticipation else 0L
   data         <- ptep$data
-  yname        <- ptep$yname
 
   # --- resolve to original time periods (mirrors attgt_pte_aggregations) ---
   time.periods <- ptep$tlist
@@ -334,15 +352,28 @@ panel_qtt_long_agg <- function(attgt.list, ptep, extra_gt_returns) {
     cell_tp <- sapply(cell_tp, BMisc::t2orig, original_tp)
   }
 
+  # event time in calendar units, for reporting (matches ptetools' convention)
   effective_g <- cell_g - anticipation
   cell_e      <- cell_tp - effective_g
-  is_post     <- cell_e >= 0L
 
   # --- validity mask ---
-  # post-treatment: valid iff pre2 = 2*effective_g - tp - 2 is in original_tp
-  # pre-test: always valid (sliding base, guaranteed by required_pre_periods = 2)
-  pre2_long <- 2L * effective_g - cell_tp - 2L
-  is_valid  <- ifelse(is_post, pre2_long %in% original_tp, TRUE)
+  # three_period_subset() picks pre2/pre1/post in ptetools' period-index units
+  # (1..T, the position in original_tp), so post-treatment status and the
+  # existence of pre2 must be checked in those same units. Doing this
+  # arithmetic in calendar units disagrees with the subset function whenever
+  # periods are unequally spaced: e.g. lalonde.psid.panel (1974, 1975, 1978)
+  # with g = t = 1978 gave pre2 = 1976, wrongly marking the only cell invalid.
+  # Post-treatment status uses anticipation in calendar time, and pre1 is the
+  # last period at least `anticipation` before g, as in three_period_subset().
+  #   post-treatment: valid iff pre2 = 2 * pre1 - tp >= 1 (index units)
+  #   pre-test: always valid (sliding base; required_pre_periods = 2)
+  tp_idx    <- match(cell_tp, original_tp)
+  pre1_idx  <- vapply(cell_g, function(gg) {
+    max(c(0L, which(original_tp + anticipation < gg)))
+  }, numeric(1L))
+  is_post   <- cell_tp >= cell_g - anticipation
+  pre2_long <- 2L * pre1_idx - tp_idx
+  is_valid  <- ifelse(is_post, pre2_long >= 1L, TRUE)
 
   # --- error on valid cells with unexpected NA att ---
   if (any(is_valid & is.na(cell_att))) {
@@ -354,18 +385,28 @@ panel_qtt_long_agg <- function(attgt.list, ptep, extra_gt_returns) {
     ))
   }
 
-  # --- group sizes (count treated units at first time period) ---
-  n_group <- sapply(groups, function(gg) {
-    nrow(subset(data, data[, ptep$gname] == gg &
-                      data[, ptep$tname] == original_tp[1L]))
-  })
+  # --- group sizes (weighted number of units at the first time period) ---
+  # Weighted by the sampling weights (.w, all 1 without weightsname), as the
+  # ptetools aggregations do (ptetools #23); counting rows combined cohorts
+  # by sample counts rather than weighted population shares (#13).
+  first_rows <- which(data[, ptep$tname] == original_tp[1L])
+  first_G    <- data[first_rows, ptep$gname]
+  first_w    <- if (is.null(data$.w)) rep(1, length(first_rows)) else
+    data$.w[first_rows]
+  n_group <- vapply(groups, function(gg) {
+    sum(first_w[first_G == gg], na.rm = TRUE)
+  }, numeric(1L))
   names(n_group) <- as.character(groups)
 
   # --- F0/F1 for all cells (NULL for invalid/NA cells) ---
   F0_gt <- lapply(extra_gt_returns, function(egr) egr$extra_gt_returns$F0) # nolint: object_name_linter
   F1_gt <- lapply(extra_gt_returns, function(egr) egr$extra_gt_returns$F1) # nolint: object_name_linter
 
-  y.seq <- quantile(data[, yname], probs = seq(0, 1, length.out = 1000))
+  # Cells are mixed exactly, from every support point of their step-function
+  # CDFs: BMisc::combine_ecdfs() without y.seq (BMisc >= 1.4.11) returns the
+  # exact mixture, and quantile() of it is exact. This used to evaluate the
+  # cells on a 1,000-point grid of the pooled outcome, which rounded each
+  # quantile to the grid (#19; ptetools #25 made the same change).
 
   # --- overall QTT (two-step weights over valid post-treatment cells) ---
   valid_post <- is_valid & is_post
@@ -392,8 +433,8 @@ panel_qtt_long_agg <- function(attgt.list, ptep, extra_gt_returns) {
   }
 
   nonzero    <- which(overall_w > 0)
-  F0_overall <- BMisc::combine_ecdfs(y.seq, ecdflist = F0_gt[nonzero], weights = overall_w[nonzero]) # nolint: object_name_linter
-  F1_overall <- BMisc::combine_ecdfs(y.seq, ecdflist = F1_gt[nonzero], weights = overall_w[nonzero]) # nolint: object_name_linter
+  F0_overall <- BMisc::combine_ecdfs(ecdflist = F0_gt[nonzero], weights = overall_w[nonzero]) # nolint: object_name_linter
+  F1_overall <- BMisc::combine_ecdfs(ecdflist = F1_gt[nonzero], weights = overall_w[nonzero]) # nolint: object_name_linter
   overall_qtt <- quantile(F1_overall, probs = probs, type = 1) -
                  quantile(F0_overall, probs = probs, type = 1)
   overall_results <- data.frame(probs = probs, qtt = overall_qtt)
@@ -406,26 +447,32 @@ panel_qtt_long_agg <- function(attgt.list, ptep, extra_gt_returns) {
     g_at_e <- cell_g[e_idx]
     pg_e   <- n_group[as.character(g_at_e)]
     pg_e   <- pg_e / sum(pg_e)
-    F0_e <- BMisc::combine_ecdfs(y.seq, ecdflist = F0_gt[e_idx], weights = pg_e) # nolint: object_name_linter
-    F1_e <- BMisc::combine_ecdfs(y.seq, ecdflist = F1_gt[e_idx], weights = pg_e) # nolint: object_name_linter
+    F0_e <- BMisc::combine_ecdfs(ecdflist = F0_gt[e_idx], weights = pg_e) # nolint: object_name_linter
+    F1_e <- BMisc::combine_ecdfs(ecdflist = F1_gt[e_idx], weights = pg_e) # nolint: object_name_linter
     qtt_e <- quantile(F1_e, probs = probs, type = 1) -
               quantile(F0_e, probs = probs, type = 1)
-    data.frame(e = this_e, probs = probs, qtt = qtt_e)
+    list(qtt = data.frame(e = this_e, probs = probs, qtt = qtt_e),
+         att = data.frame(e = this_e, att = sum(pg_e * cell_att[e_idx])))
   })
-  dyn_results <- do.call(rbind, Filter(Negate(is.null), dyn_results_list))
+  dyn_results_list <- Filter(Negate(is.null), dyn_results_list)
+  dyn_results <- do.call(rbind, lapply(dyn_results_list, `[[`, "qtt"))
+  dyn_att     <- do.call(rbind, lapply(dyn_results_list, `[[`, "att"))
 
   # --- group QTT (uniform weight over valid post-treatment cells per group) ---
   group_results_list <- lapply(surviving_g, function(g) {
     g_idx <- which(valid_post & cell_g == g)
     if (length(g_idx) == 0L) return(NULL)
     w_g <- rep(1 / length(g_idx), length(g_idx))
-    F0_g <- BMisc::combine_ecdfs(y.seq, ecdflist = F0_gt[g_idx], weights = w_g) # nolint: object_name_linter
-    F1_g <- BMisc::combine_ecdfs(y.seq, ecdflist = F1_gt[g_idx], weights = w_g) # nolint: object_name_linter
+    F0_g <- BMisc::combine_ecdfs(ecdflist = F0_gt[g_idx], weights = w_g) # nolint: object_name_linter
+    F1_g <- BMisc::combine_ecdfs(ecdflist = F1_gt[g_idx], weights = w_g) # nolint: object_name_linter
     qtt_g <- quantile(F1_g, probs = probs, type = 1) -
               quantile(F0_g, probs = probs, type = 1)
-    data.frame(group = g, probs = probs, qtt = qtt_g)
+    list(qtt = data.frame(group = g, probs = probs, qtt = qtt_g),
+         att = data.frame(group = g, att = sum(w_g * cell_att[g_idx])))
   })
-  group_results <- do.call(rbind, Filter(Negate(is.null), group_results_list))
+  group_results_list <- Filter(Negate(is.null), group_results_list)
+  group_results <- do.call(rbind, lapply(group_results_list, `[[`, "qtt"))
+  group_att     <- do.call(rbind, lapply(group_results_list, `[[`, "att"))
 
   # --- attgt_results (scalar ATTs for valid cells; for SE tables) ---
   valid_idx <- which(is_valid)
@@ -435,13 +482,40 @@ panel_qtt_long_agg <- function(attgt.list, ptep, extra_gt_returns) {
     att         = cell_att[valid_idx]
   )
 
+  # --- ATT, and QTT minus ATT (ptetools #27) ---
+  # The cells' ATTs are aggregated with the same weights as the QTTs at each
+  # level, so ptetools' bootstrap gives the ATT and QTT(tau) - ATT from the
+  # same draws: a test of QTT(tau) = ATT at every tau. Same structure as
+  # ptetools::qtt_pte_aggregations().
+  att_results <- list(
+    overall = data.frame(att = sum(overall_w[nonzero] * cell_att[nonzero])),
+    dynamic = data.frame(e = dyn_att$e, att = dyn_att$att),
+    group   = data.frame(group = group_att$group, att = group_att$att)
+  )
+  minus_att <- function(qtt_df, att_df, key) {
+    m <- merge(qtt_df, att_df, by = key)
+    m <- m[order(m[[key]], m$probs), , drop = FALSE]
+    out <- m[c(key, "probs")]
+    out$qtt_minus_att <- m$qtt - m$att
+    rownames(out) <- NULL
+    out
+  }
+  qtt_minus_att_results <- list(
+    overall = data.frame(probs = probs,
+                         qtt_minus_att = overall_qtt - att_results$overall$att),
+    dynamic = minus_att(dyn_results, att_results$dynamic, "e"),
+    group   = minus_att(group_results, att_results$group, "group")
+  )
+
   list(
-    overall_results = overall_results,
-    dyn_results     = dyn_results,
-    group_results   = group_results,
-    attgt_results   = attgt_results,
-    F0_overall      = F0_overall, # nolint: object_name_linter
-    F1_overall      = F1_overall  # nolint: object_name_linter
+    overall_results       = overall_results,
+    dyn_results           = dyn_results,
+    group_results         = group_results,
+    attgt_results         = attgt_results,
+    att_results           = att_results,
+    qtt_minus_att_results = qtt_minus_att_results,
+    F0_overall            = F0_overall, # nolint: object_name_linter
+    F1_overall            = F1_overall  # nolint: object_name_linter
   )
 }
 
@@ -464,12 +538,14 @@ panel_qtt_long_agg <- function(attgt.list, ptep, extra_gt_returns) {
 #'   \strong{pre_copula.} Controls which pre-treatment periods are used as the
 #'   copula-transfer base for post-treatment cells (g, g+e):
 #'   \describe{
-#'     \item{\code{"long"} (default)}{pre2 = 2*(g - anticipation) - (g+e) - 2,
-#'       matching the copula window to the event horizon e. Cells where pre2
-#'       does not exist in the data are excluded from aggregation with two-step
-#'       weight renormalization.}
-#'     \item{\code{"short"}}{pre2 = g - anticipation - 2, always anchored at
-#'       treatment onset.}
+#'     \item{\code{"long"} (default)}{pre2 is as many periods before pre1 as
+#'       the post period is after it, matching the copula window to the event
+#'       horizon. pre1 is the last period at least \code{anticipation} before
+#'       g (in units of the time variable). Cells where pre2 does not exist in
+#'       the data are excluded from aggregation with two-step weight
+#'       renormalization.}
+#'     \item{\code{"short"}}{pre2 is the period just before pre1, always
+#'       anchored at treatment onset.}
 #'   }
 #'   Pre-test placebo cells always use the sliding base regardless of
 #'   \code{pre_copula}.
@@ -481,10 +557,23 @@ panel_qtt_long_agg <- function(attgt.list, ptep, extra_gt_returns) {
 #' @param idname Name of the unit id variable (required).
 #' @param data A data frame.
 #' @param xformula One-sided formula for covariates. Default \code{~1}.
+#'   Each unit's covariates are taken from the earliest period the
+#'   group-time cell uses (the second pre-treatment period), so they are
+#'   fixed across all three periods.
+#' @param cond_dist How conditional distributions are estimated when
+#'   \code{xformula} has covariates: \code{"qr"} (default) for quantile
+#'   regression or \code{"dr"} for distribution regression. See
+#'   \code{\link{cic_gt}}. Ignored without covariates.
 #' @param weightsname Name of the sampling weights column. Default \code{NULL}.
+#' @param clustervars Name of a column in \code{data} to cluster standard
+#'   errors on, in addition to \code{idname} (as in \code{did::att_gt()}):
+#'   one variable, constant over time within each unit. Default \code{NULL}
+#'   clusters at the unit level. With the empirical bootstrap, whole clusters
+#'   are resampled.
 #' @param control_group \code{"notyettreated"} (default) or
 #'   \code{"nevertreated"}.
-#' @param anticipation Number of periods of anticipation. Default \code{0}.
+#' @param anticipation Anticipation, in units of the time variable. Default
+#'   \code{0}.
 #' @param alp Significance level. Default \code{0.05}.
 #' @param cband Logical; uniform confidence band if \code{TRUE} (default).
 #' @param biters Number of bootstrap iterations. Default \code{100}.
@@ -516,6 +605,8 @@ panel_qtt_long_agg <- function(attgt.list, ptep, extra_gt_returns) {
 #' summary(res)
 #' }
 #'
+#' @inheritSection cic Discrete outcomes
+#' @inheritSection cic Repeated cross sections
 #' @export
 panel_qtt <- function(yname,
                       gname,
@@ -523,7 +614,9 @@ panel_qtt <- function(yname,
                       idname,
                       data,
                       xformula      = ~1,
+                      cond_dist     = c("qr", "dr"),
                       weightsname   = NULL,
+                      clustervars   = NULL,
                       control_group = "notyettreated",
                       anticipation  = 0,
                       alp           = 0.05,
@@ -535,13 +628,14 @@ panel_qtt <- function(yname,
                       pre_copula    = "long") {
 
   pre_copula <- match.arg(pre_copula, c("long", "short"))
+  cond_dist  <- match.arg(cond_dist)
 
   # Select aggte_fun based on gt_type and pre_copula.
   # For ATT mode, attgt_pte_aggregations already drops NA cells (complete.cases)
   # and applies group-size weights over surviving groups — correct two-step
   # behaviour for both pre_copula variants.
   # For QTT mode with "long", custom two-step aggregation is required because
-  # qtt_pte_aggregations does not filter invalid cells before combine_ecdfs.
+  # qtt_pte_aggregations does not filter invalid cells before mixing them.
   aggte_fun <- if (gt_type == "qtt" && pre_copula == "long") {
     panel_qtt_long_agg
   } else if (gt_type == "qtt") {
@@ -551,22 +645,32 @@ panel_qtt <- function(yname,
     function(al, p, eg) ptetools::attgt_pte_aggregations(al, p)
   }
 
+  # warn once if the outcome looks discrete (#17): this estimator's ATT
+  # and QTT both come from a counterfactual distribution built from
+  # ranks or quantiles. Never per (g,t) cell or bootstrap draw.
+  disc <- check_discrete_outcome(data, yname, weightsname,
+                                 warn = TRUE)
+
   # required_pre_periods = 2: drop first two periods from tlist so every tp
   # satisfies tp >= 3, guaranteeing the sliding base (pre2 = tp-2) is valid
   # for pre-test cells.
-  ptetools::pte(
+  res <- ptetools::pte(
     yname            = yname,
     gname            = gname,
     tname            = tname,
     idname           = idname,
-    data             = data,
+    data             = keep_used_columns(data, yname, gname, tname, idname,
+                                         weightsname, xformula,
+                                         clustervars = clustervars),
     panel            = TRUE,
     setup_pte_fun    = ptetools::setup_pte,
     subset_fun       = three_period_subset,
     attgt_fun        = panel_qtt_gt,
     aggte_fun        = aggte_fun,
     xformula         = xformula,
+    cond_dist        = cond_dist,
     weightsname      = weightsname,
+    clustervars      = clustervars,
     control_group    = control_group,
     anticipation     = anticipation,
     cband            = cband,
@@ -579,4 +683,6 @@ panel_qtt <- function(yname,
     pre_copula       = pre_copula,
     required_pre_periods = 2L
   )
+  res$outcome_discreteness <- disc
+  res
 }

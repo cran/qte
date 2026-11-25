@@ -35,7 +35,7 @@ if (use_cache) {
     yname      = "re78",
     dname      = "treat",
     data       = lalonde.psid,
-    xformla    = xf,
+    xformula   = xf,
     est_method = "aipw",
     target     = "qte",
     probs      = seq(0.1, 0.9, 0.1),
@@ -45,14 +45,14 @@ if (use_cache) {
     yname      = "re78",
     dname      = "treat",
     data       = lalonde.psid,
-    xformla    = xf,
+    xformula   = xf,
     est_method = "aipw",
     target     = "qtt",
     probs      = seq(0.1, 0.9, 0.1),
     biters     = 100
   )
-  # pscore.reg (fitted glm) carries a full copy of the training data and is
-  # never read by summary()/autoplot(); dropping it keeps the cache small.
+  # pscore.reg (the fitted propensity score model) is never read by
+  # summary()/autoplot(); dropping it keeps the cache small.
   save_psid <- res_psid; save_psid$pscore.reg <- NULL
   save_qtt  <- res_qtt;  save_qtt$pscore.reg  <- NULL
   saveRDS(list(res_exp = res_exp, res_psid = save_psid, res_qtt = save_qtt), cache_file)
@@ -94,7 +94,7 @@ autoplot(res_exp, ylab = "QTE (earnings, 1978)")
 #   yname      = "re78",
 #   dname      = "treat",
 #   data       = lalonde.psid,
-#   xformla    = xf,
+#   xformula   = xf,
 #   est_method = "aipw",
 #   target     = "qte",
 #   probs      = seq(0.1, 0.9, 0.1),
@@ -122,7 +122,7 @@ autoplot(res_psid, ylab = "QTE (earnings, 1978)")
 #   yname      = "re78",
 #   dname      = "treat",
 #   data       = lalonde.psid,
-#   xformla    = xf,
+#   xformula   = xf,
 #   est_method = "aipw",
 #   target     = "qtt",
 #   probs      = seq(0.1, 0.9, 0.1),

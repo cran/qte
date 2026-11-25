@@ -11,7 +11,9 @@ ddid(
   idname,
   data,
   xformula = ~1,
+  cond_dist = c("qr", "dr"),
   weightsname = NULL,
+  clustervars = NULL,
   control_group = "notyettreated",
   anticipation = 0,
   alp = 0.05,
@@ -35,10 +37,23 @@ ddid(
 \item{data}{A data frame.}
 
 \item{xformula}{One-sided formula for covariates. Default \code{~1} uses no
-covariates.}
+covariates.
+Each unit's covariates are taken from the base period of each
+group-time cell.}
+
+\item{cond_dist}{How conditional distributions are estimated when
+\code{xformula} has covariates: \code{"qr"} (default) for quantile
+regression or \code{"dr"} for distribution regression. See
+\code{\link{cic_gt}}. Ignored without covariates.}
 
 \item{weightsname}{Name of the column in \code{data} containing sampling
 weights. Default \code{NULL} uses equal weights.}
+
+\item{clustervars}{Name of a column in \code{data} to cluster standard
+errors on, in addition to \code{idname} (as in \code{did::att_gt()}):
+one variable, constant over time within each unit. Default \code{NULL}
+clusters at the unit level. With the empirical bootstrap, whole clusters
+are resampled.}
 
 \item{control_group}{Which units to use as the comparison group:
 \code{"notyettreated"} (default) or \code{"nevertreated"}.}
@@ -86,6 +101,38 @@ methods (e.g. \code{panel_qtt}) that require three periods.
 because it requires observing the within-unit outcome change for each
 control unit.
 }
+\section{Discrete outcomes}{
+
+Quantile treatment effects usually require a continuous outcome. With
+mass points (e.g. many zeros) or few distinct values, quantiles jump and
+effects at quantiles inside a mass point are 0 by construction;
+identification based on ranks or quantile functions (change-in-changes,
+quantile DiD, the panel and distributional DiD copula arguments) only
+bounds the effects (Athey and Imbens 2006, Section 4); and bootstrap
+inference for quantiles can be unreliable. The estimators warn (once per
+call, class \code{qte_discrete_outcome}) when more than 10\\% of the
+outcome's observations share one value or it takes at most 20 distinct
+values, across all groups and periods; the thresholds are the options
+\code{qte.mass_point_tol} and \code{qte.discrete_n_unique}. The
+diagnostics are returned as \code{outcome_discreteness}.
+\code{\link{cdf_did}} is identified for discrete outcomes.
+}
+
+\section{Repeated cross sections}{
+
+\code{cic()}, \code{qdid()}, \code{mdid()}, \code{cdf_did()} and
+\code{lou_qtt(lagged_outcome_cov = FALSE)} also work with repeated cross
+sections (\code{panel = FALSE}; \code{idname} not needed). Without
+covariates they use only each period's outcome distributions, so on
+panel data the estimates are the same either way; the standard errors
+differ, because the bootstrap then resamples observations rather than
+units. Some things need the same units in several periods and so
+require panel data: \code{ddid()} (each comparison unit's change over
+time), \code{panel_qtt()} (the copula between periods), the lagged
+outcome in \code{lou_qtt()}, and \code{gt_type = "qott"} (the
+distribution of individual treatment effects).
+}
+
 \examples{
 \donttest{
 data(mpdta, package = "did")

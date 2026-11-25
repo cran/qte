@@ -3,9 +3,10 @@
 # Description: Regression checks for ddid() covering panel ATT and QTT modes.
 #   Uses the same make_staggered_panel() helper as test-cic.R.  biters kept
 #   low (20) so the suite runs quickly.  Reference values computed from the
-#   first verified run.
+#   first verified run. Also checks the covariate adjustment when treatment
+#   depends on X (issue #10).
 # Author: Brant Callaway
-# Last update: 2026-05-18
+# Last update: 2026-11-19
 # Date created: 2026-05-18
 # =============================================================================
 
@@ -51,5 +52,27 @@ test_that("ddid panel QTT returns valid pte_qtt with correct structure", {
   expect_equal(nrow(res$overall), 3L)
   expect_false(anyNA(res$overall$qtt))
   expect_true(all(res$overall$lower_pw < res$overall$upper_pw))
-  expect_equal(res$overall$qtt[res$overall$probs == 0.5], 0.9470309, tolerance = 1e-4)
+  # true effect 1. Was 0.9470309 before ptetools aggregated cells with
+  # the right weights (8ede89a) and exactly (#19)
+  expect_equal(res$overall$qtt[res$overall$probs == 0.5], 0.9668828, tolerance = 1e-4)
+})
+
+test_that("ddid_gt with covariates is unbiased when treatment depends on X (#10)", {
+  # DDiD holds given x; the trend depends on x and x differs by D, so the
+  # counterfactual must be integrated over the treated covariate distribution
+  set.seed(7)
+  n <- 4000
+  x <- rnorm(n)
+  D <- rbinom(n, 1, plogis(0.5 * x))
+  u <- rnorm(n, 0.4 * D + 0.6 * x)
+  gt <- rbind(
+    data.frame(id = 1:n, D = D, name = "pre",  Y = x + u, x = x, .w = 1),
+    data.frame(id = 1:n, D = D, name = "post", Y = 0.5 + 1.2 * x + u + D, x = x, .w = 1)
+  )
+  op <- options(qte.disable_qr_cache = TRUE)
+  for (cd in c("qr", "dr")) {
+    expect_equal(suppressWarnings(ddid_gt(gt, ~x, cond_dist = cd))$attgt, 1,
+                 tolerance = 0.1)
+  }
+  options(op)
 })

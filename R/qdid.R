@@ -4,10 +4,9 @@
 #   qdid_gt is the 2x2 workhorse used directly as a ptetools attgt_fun.
 #   qdid is the unified user-facing function covering two-period and staggered
 #   treatment adoption for both panel and repeated cross sections data.
-#   QDiD is a deprecated alias retained for backwards compatibility.
-#   compute.QDiD is an unexported helper kept only to support the deprecated QDiD.
+#   (The deprecated two-period QDiD() was removed in v2.1.0.)
 # Author: Brant Callaway
-# Last update: 2026-07-21
+# Last update: 2026-11-20
 # Date created: 2026-05-18
 # =============================================================================
 
@@ -29,6 +28,10 @@
 #' @param xformula One-sided formula for covariates. Default \code{~1} uses no
 #'   covariates. With covariates, conditional quantile regressions are used
 #'   following Athey and Imbens (2006).
+#' @param cond_dist How the conditional distributions are estimated when
+#'   \code{xformula} has covariates: \code{"qr"} (default) for quantile
+#'   regression or \code{"dr"} for distribution regression. See
+#'   \code{\link{cic_gt}}. Ignored without covariates.
 #' @param ... Additional arguments passed through by \code{ptetools}; not used
 #'   directly.
 #'
@@ -46,7 +49,10 @@
 #' @importFrom quantreg rq
 #'
 #' @export
-qdid_gt <- function(gt_data, xformula = ~1, ...) {
+qdid_gt <- function(gt_data, xformula = ~1, cond_dist = c("qr", "dr"), ...) {
+  cond_dist <- match.arg(cond_dist)
+  # covariates fixed at their base-period values (panel data)
+  gt_data <- base_period_covariates(gt_data, xformula)
   gt_data <- droplevels(gt_data)
 
   # extract the four (period x treatment-status) cells
@@ -73,9 +79,7 @@ qdid_gt <- function(gt_data, xformula = ~1, ...) {
   # Weighted CDFs/quantiles are used throughout.
 
   # weighted rank in the treated pre-period distribution
-  u <- vapply(Y_pre_trt,
-              function(y) sum(w_pre_trt * (Y_pre_trt <= y)),
-              numeric(1))
+  u <- wcdf_at(Y_pre_trt, w_pre_trt, Y_pre_trt)
 
   Q_pre_ctrl  <- wquant(Y_pre_ctrl,  w_pre_ctrl,  u) # nolint: object_name_linter
   Q_post_ctrl <- wquant(Y_post_ctrl, w_post_ctrl, u) # nolint: object_name_linter
@@ -98,18 +102,17 @@ qdid_gt <- function(gt_data, xformula = ~1, ...) {
     post_s <- gt_data[gt_data$name == "post" & gt_data$D == 1, ]
     pre_s  <- pre_s[order(pre_s$id), ]
     post_s <- post_s[order(post_s$id), ]
-    u_s       <- vapply(pre_s$Y,
-                        function(y) sum(w_pre_trt * (Y_pre_trt <= y)),
-                        numeric(1))
+    u_s       <- wcdf_at(Y_pre_trt, w_pre_trt, pre_s$Y)
     kcf_s     <- pre_s$Y + wquant(Y_post_ctrl, w_post_ctrl, u_s) -
                             wquant(Y_pre_ctrl,  w_pre_ctrl,  u_s)
     w_post_s  <- post_s$.w / sum(post_s$.w)
     Fte <- BMisc::weighted_ecdf(post_s$Y - kcf_s, weights = w_post_s) # nolint: object_name_linter
   }
 
-  # covariate adjustment via conditional quantile regression (Athey-Imbens 2006).
-  # Conditional rank is estimated from the treated pre-period QR (QR1tmin1).
-  # Sampling weights are passed to rq() for consistency with the weighted ATT.
+  # covariate adjustment via conditional distributions (Athey-Imbens 2006),
+  # estimated by quantile or distribution regression (cond_dist). The
+  # conditional rank comes from the treated pre-period distribution. Sampling
+  # weights enter the fits, consistent with the weighted ATT.
   if (length(BMisc::rhs_vars(xformula)) > 0) {
     u_seq <- seq(0.01, 0.99, 0.01)
 
@@ -123,26 +126,33 @@ qdid_gt <- function(gt_data, xformula = ~1, ...) {
       post_trt <- post_trt[order(post_trt$id), ]
     }
 
-    n1      <- nrow(pre_trt)
     yformla <- BMisc::toformula("Y", BMisc::rhs_vars(xformula)) # nolint: object_name_linter
+    # factor levels of the whole cell, so every fit has the same columns;
+    # warn when a fit is evaluated at covariates it doesn't span (#16)
+    xlev <- cond_xlevels(yformla, gt_data)
+    check_cond_support(yformla, list(pre_ctrl, post_ctrl), pre_trt)
 
     # conditional rank in the treated pre-period distribution
-    QR1tmin1  <- suppressWarnings(rq(yformla, data = pre_trt,   tau = u_seq, weights = .w)) # nolint: object_name_linter
-    QR0t      <- suppressWarnings(rq(yformla, data = post_ctrl, tau = u_seq, weights = .w)) # nolint: object_name_linter
-    QR0tmin1  <- suppressWarnings(rq(yformla, data = pre_ctrl,  tau = u_seq, weights = .w)) # nolint: object_name_linter
+    fit1tmin1 <- cond_fit(yformla, pre_trt, cond_dist, u_seq, xlev = xlev)
+    # post-period control fit: the same for all cohorts treated by this
+    # period, so reused across those cells (cache = TRUE)
+    fit0t     <- cond_fit(yformla, post_ctrl, cond_dist, u_seq, cache = TRUE,
+                          xlev = xlev)
+    fit0tmin1 <- cond_fit(yformla, pre_ctrl, cond_dist, u_seq, xlev = xlev)
 
-    QR1tmin1F  <- predict(QR1tmin1, newdata = pre_trt, type = "Fhat", stepfun = TRUE)  # nolint: object_name_linter
-    rank1tmin1 <- sapply(seq_len(n1), function(i) QR1tmin1F[[i]](pre_trt$Y[i]))
+    # rearranged (monotone) conditional distributions; see
+    # qr_sorted_quantiles() and dr_cdf_matrix()
+    rank1tmin1 <- cond_cdf(fit1tmin1, pre_trt, pre_trt$Y)
+    q0t        <- cond_quantile(fit0t, pre_trt, rank1tmin1)
+    q0tmin1    <- cond_quantile(fit0tmin1, pre_trt, rank1tmin1)
 
-    QR0tQ     <- predict(QR0t,     newdata = pre_trt, type = "Qhat", stepfun = TRUE) # nolint: object_name_linter
-    QR0tQ     <- sapply(seq_len(n1), function(i) QR0tQ[[i]](rank1tmin1[i]))           # nolint: object_name_linter
-    QR0tmin1Q <- predict(QR0tmin1, newdata = pre_trt, type = "Qhat", stepfun = TRUE) # nolint: object_name_linter
-    QR0tmin1Q <- sapply(seq_len(n1), function(i) QR0tmin1Q[[i]](rank1tmin1[i]))      # nolint: object_name_linter
+    y0t <- pre_trt$Y + q0t - q0tmin1
 
-    y0t <- pre_trt$Y + QR0tQ - QR0tmin1Q
-
-    att          <- weighted.mean(Y_post_trt, w_post_trt) - weighted.mean(y0t, w_pre_trt)
+    # weights from pre_trt itself, so they follow its id order (as y0t does);
+    # w_pre_trt above is in gt_data row order (#14)
     w_pre_trt_n  <- pre_trt$.w / sum(pre_trt$.w)
+    att <- weighted.mean(Y_post_trt, w_post_trt) -
+      weighted.mean(y0t, w_pre_trt_n)
     F0           <- BMisc::weighted_ecdf(y0t, weights = w_pre_trt_n) # nolint: object_name_linter
 
     if (panel) {
@@ -173,11 +183,24 @@ qdid_gt <- function(gt_data, xformula = ~1, ...) {
 #'   \code{panel = TRUE}.
 #' @param data A data frame.
 #' @param panel Logical; \code{TRUE} (default) for panel data,
-#'   \code{FALSE} for repeated cross sections.
+#'   \code{FALSE} for repeated cross sections (see the section on repeated
+#'   cross sections).
 #' @param xformula One-sided formula for covariates used in the covariate
 #'   adjustment. Default \code{~1} uses no covariates.
+#'   With panel data, each unit's covariates are taken from the base period
+#'   of each group-time cell (never from a post-treatment period); with
+#'   repeated cross sections, each observation's own values are used.
+#' @param cond_dist How conditional distributions are estimated when
+#'   \code{xformula} has covariates: \code{"qr"} (default) for quantile
+#'   regression or \code{"dr"} for distribution regression. See
+#'   \code{\link{cic_gt}}. Ignored without covariates.
 #' @param weightsname Name of the column in \code{data} containing sampling
 #'   weights. Default \code{NULL} uses equal weights.
+#' @param clustervars Name of a column in \code{data} to cluster standard
+#'   errors on, in addition to \code{idname} (as in \code{did::att_gt()}):
+#'   one variable, constant over time within each unit. Default \code{NULL}
+#'   clusters at the unit level. With the empirical bootstrap, whole clusters
+#'   are resampled.
 #' @param control_group Which units to use as the comparison group:
 #'   \code{"notyettreated"} (default) or \code{"nevertreated"}.
 #' @param anticipation Number of periods of anticipation. Default \code{0}.
@@ -220,6 +243,8 @@ qdid_gt <- function(gt_data, xformula = ~1, ...) {
 #' summary(res_qtt)
 #' }
 #'
+#' @inheritSection cic Discrete outcomes
+#' @inheritSection cic Repeated cross sections
 #' @export
 qdid <- function(yname,
                  gname,
@@ -228,7 +253,9 @@ qdid <- function(yname,
                  data,
                  panel         = TRUE,
                  xformula      = ~1,
+                 cond_dist     = c("qr", "dr"),
                  weightsname   = NULL,
+                 clustervars   = NULL,
                  control_group = "notyettreated",
                  anticipation  = 0,
                  alp           = 0.05,
@@ -238,6 +265,7 @@ qdid <- function(yname,
                  ret_quantile  = NULL,
                  gt_type       = "att",
                  probs         = NULL) {
+  cond_dist <- match.arg(cond_dist)
 
   if (gt_type == "qott" && !isTRUE(panel)) {
     stop(paste0(
@@ -262,19 +290,29 @@ qdid <- function(yname,
     function(al, p, eg) ptetools::attgt_pte_aggregations(al, p)
   }
 
-  ptetools::pte(
+  # warn once if the outcome looks discrete (#17): this estimator's ATT
+  # and QTT both come from a counterfactual distribution built from
+  # ranks or quantiles. Never per (g,t) cell or bootstrap draw.
+  disc <- check_discrete_outcome(data, yname, weightsname,
+                                 warn = TRUE)
+
+  res <- ptetools::pte(
     yname           = yname,
     gname           = gname,
     tname           = tname,
     idname          = idname,
-    data            = data,
+    data            = keep_used_columns(data, yname, gname, tname, idname,
+                                        weightsname, xformula,
+                                        clustervars = clustervars),
     panel           = panel,
     setup_pte_fun   = ptetools::setup_pte,
     subset_fun      = subset_fun,
     attgt_fun       = qdid_gt,
     aggte_fun       = aggte_fun,
     xformula        = xformula,
+    cond_dist       = cond_dist,
     weightsname     = weightsname,
+    clustervars     = clustervars,
     control_group   = control_group,
     anticipation    = anticipation,
     cband           = cband,
@@ -286,178 +324,6 @@ qdid <- function(yname,
     gt_type         = gt_type,
     probs           = probs
   )
+  res$outcome_discreteness <- disc
+  res
 }
-
-
-# --- Deprecated two-period workhorse (supports QDiD only) -------------------
-
-# Kept only to support the deprecated QDiD() wrapper below. Do not use in new
-# code; use qdid_gt() instead.
-compute.QDiD <- function(qp) { # nolint: object_name_linter
-  setupData(qp)
-
-  bootstrapiter <- qp$bootstrapiter
-
-  ## compute counterfactual quantiles (marginal/unconditional)
-  q1 <- stats::quantile(treated.t[, yname], probs = probs) # nolint: object_usage_linter
-  q0 <- stats::quantile(treated.tmin1[, yname], probs = probs) +
-    stats::quantile(untreated.t[, yname], probs = probs) -   # nolint: object_usage_linter
-    stats::quantile(untreated.tmin1[, yname], probs = probs) # nolint: object_usage_linter
-
-  F.treatedcf.t <- ecdf(                                                       # nolint: object_name_linter
-    treated.tmin1[, yname] +                                                   # nolint: object_usage_linter
-    quantile(untreated.t[, yname],                                             # nolint: object_usage_linter
-             probs = F.treated.tmin1(treated.tmin1[, yname]), type = 1) -      # nolint: object_usage_linter
-    quantile(untreated.tmin1[, yname],                                         # nolint: object_usage_linter
-             probs = F.treated.tmin1(treated.tmin1[, yname]), type = 1)        # nolint: object_usage_linter
-  )
-
-  att <- mean(treated.t[, yname]) - ( # nolint: object_usage_linter
-    mean(treated.tmin1[, yname]) +    # nolint: object_usage_linter
-    mean(stats::quantile(untreated.t[, yname],    # nolint: object_usage_linter
-      probs = stats::ecdf(treated.tmin1[, yname])(treated.tmin1[, yname]))) - # nolint: object_usage_linter
-    mean(stats::quantile(untreated.tmin1[, yname],   # nolint: object_usage_linter
-      probs = stats::ecdf(treated.tmin1[, yname])(treated.tmin1[, yname]))))  # nolint: object_usage_linter
-
-  if (!is.null(xformla)) { # nolint: object_usage_linter
-    u        <- seq(.01, .99, .01)
-    n1tmin1  <- nrow(treated.tmin1) # nolint: object_usage_linter
-    yformla  <- toformula("y", BMisc::rhs_vars(xformla)) # nolint: object_usage_linter
-    QR0t     <- rq(yformla, data = untreated.t,    tau = u) # nolint: object_name_linter, object_usage_linter
-    QR0tmin1 <- rq(yformla, data = untreated.tmin1, tau = u) # nolint: object_name_linter, object_usage_linter
-    QR1tmin1 <- rq(yformla, data = treated.tmin1,  tau = u) # nolint: object_name_linter, object_usage_linter
-
-    QR1tmin1F  <- predict(QR1tmin1, newdata = treated.tmin1, type = "Fhat", stepfun = TRUE) # nolint: object_name_linter
-    rank1tmin1 <- sapply(seq_len(n1tmin1), function(i) QR1tmin1F[[i]](treated.tmin1$y[i]))  # nolint: object_usage_linter
-
-    QR0tQ     <- predict(QR0t,     newdata = treated.tmin1, type = "Qhat", stepfun = TRUE) # nolint: object_name_linter, object_usage_linter
-    QR0tQ     <- sapply(seq_len(n1tmin1), function(i) QR0tQ[[i]](rank1tmin1[i]))            # nolint: object_name_linter
-    QR0tmin1Q <- predict(QR0tmin1, newdata = treated.tmin1, type = "Qhat", stepfun = TRUE) # nolint: object_name_linter, object_usage_linter
-    QR0tmin1Q <- sapply(seq_len(n1tmin1), function(i) QR0tmin1Q[[i]](rank1tmin1[i]))       # nolint: object_name_linter
-
-    y0t <- treated.tmin1[, yname] + QR0tQ - QR0tmin1Q # nolint: object_usage_linter
-
-    F.treatedcf.t <- ecdf(y0t) # nolint: object_name_linter
-    q0  <- quantile(F.treatedcf.t, probs = probs, type = 1) # nolint: object_usage_linter
-    att <- mean(treated.t[, yname]) - mean(y0t) # nolint: object_usage_linter
-  }
-
-  if (bootstrapiter) {
-    out <- QTE(ate = att, qte = q1 - q0, probs = probs) # nolint: object_usage_linter
-  } else {
-    out <- QTE(
-      ate = att, qte = (q1 - q0),
-      probs = probs,
-      F.treated.t.cf = F.treatedcf.t
-    )
-  }
-  return(out)
-}
-
-
-# --- Deprecated two-period wrapper -------------------------------------------
-
-#' @title QDiD
-#'
-#' @description \strong{Deprecated.} Use \code{\link{qdid}} instead.
-#'
-#'   \code{QDiD} is a legacy two-period wrapper for the Quantile
-#'   Difference-in-Differences estimator. It accepts a formula and explicit
-#'   \code{t}/\code{tmin1} time period arguments. The modern replacement
-#'   \code{\link{qdid}} uses a \code{yname}/\code{gname}/\code{tname}
-#'   interface and supports staggered treatment adoption natively.
-#'
-#' @param formla formula of the form \code{y ~ treat}.
-#' @param xformla optional one-sided covariate formula.
-#' @param t post-treatment period.
-#' @param tmin1 pre-treatment period.
-#' @param tname name of the time column.
-#' @param data data.frame.
-#' @param panel logical; whether data are panel.
-#' @param se logical; whether to compute bootstrap SEs.
-#' @param idname name of the unit id column.
-#' @param alp significance level.
-#' @param probs quantile grid.
-#' @param iters bootstrap iterations.
-#' @param retEachIter logical; return per-iteration results.
-#' @param pl logical; parallel bootstrap.
-#' @param cores number of cores.
-#' @param biters alias for \code{iters}; takes precedence if supplied.
-#' @param cl alias for \code{cores}; takes precedence if supplied.
-#'
-#' @return \code{QTE} object.
-#'
-#' @seealso \code{\link{qdid}}
-#'
-#' @name QDiD-deprecated
-#' @aliases QDiD
-#' @keywords internal
-#' @export
-# nolint start: object_name_linter
-QDiD <- function(formla, xformla = NULL, t, tmin1, tname, data,
-                 panel = FALSE, se = TRUE,
-                 idname = NULL,
-                 alp = 0.05, probs = seq(0.05, 0.95, 0.05), iters = 100,
-                 retEachIter = FALSE,
-                 pl = FALSE, cores = NULL,
-                 biters = NULL, cl = NULL) {
-  .Deprecated(msg = paste0(
-    "QDiD() is deprecated. The replacement qdid() uses a different data model: ",
-    "specify outcome, group, and time variables by name (yname, gname, tname) ",
-    "and provide gname as a column holding each unit's first treatment period ",
-    "(0 = never-treated), rather than a formula and explicit t/tmin1 values. ",
-    "See ?qdid."
-  ))
-  # biters and cl are aliases matching the did/ptetools API
-  if (!is.null(biters)) iters <- biters
-  if (!is.null(cl)) {
-    pl    <- cl > 1
-    cores <- cl
-  }
-  if (panel) {
-    data <- panelize.data(data, idname, tname, t, tmin1)
-  } else {
-    data <- subset(data, (data[, tname] == tmin1 | data[, tname] == t))
-  }
-
-  qp <- QTEparams(
-    formla = formla, xformla = xformla, t = t, tmin1 = tmin1,
-    tname = tname, data = data, panel = panel,
-    idname = idname, probs = probs,
-    iters = iters, bootstrapiter = FALSE, alp = alp,
-    se = se, retEachIter = retEachIter,
-    pl = pl, cores = cores
-  )
-
-  qdid_result <- compute.QDiD(qp)
-
-  if (se) {
-    qp$bootstrapiter <- TRUE
-    SEobj <- bootstrap(qp, qdid_result, compute.QDiD)
-    out <- QTE(
-      qte = qdid_result$qte, qte.upper = SEobj$qte.upper,
-      qte.lower = SEobj$qte.lower, ate = qdid_result$ate,
-      ate.upper = SEobj$ate.upper, ate.lower = SEobj$ate.lower,
-      qte.se = SEobj$qte.se, ate.se = SEobj$ate.se,
-      c = SEobj$c, alp = alp,
-      F.treated.t = qdid_result$F.treated.t,
-      F.untreated.t = qdid_result$F.untreated.t,
-      F.treated.t.cf = qdid_result$F.treated.t.cf,
-      F.treated.tmin1 = qdid_result$F.treated.tmin1,
-      F.treated.tmin2 = qdid_result$F.treated.tmin2,
-      F.treated.change.tmin1 = qdid_result$F.treated.change.tmin1,
-      F.untreated.change.t = qdid_result$F.untreated.change.t,
-      F.untreated.change.tmin1 = qdid_result$F.untreated.change.tmin1,
-      F.untreated.tmin1 = qdid_result$F.untreated.tmin1,
-      F.untreated.tmin2 = qdid_result$F.untreated.tmin2,
-      condQ.treated.t = qdid_result$condQ.treated.t,
-      condQ.treated.t.cf = qdid_result$condQ.treated.t.cf,
-      eachIterList = eachIter,
-      probs = probs
-    )
-    return(out)
-  } else {
-    return(qdid_result)
-  }
-}
-# nolint end: object_name_linter

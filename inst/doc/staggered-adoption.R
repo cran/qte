@@ -18,18 +18,19 @@ data(mpdta, package = "did")
 cache_file <- "precomputed/staggered-adoption-results.rds"
 use_cache <- file.exists(cache_file)
 
+median_fit <- function(estimator) {
+  estimator(
+    yname = "lemp", gname = "first.treat", tname = "year",
+    idname = "countyreal", data = mpdta,
+    gt_type = "qtt", probs = 0.5, biters = 100
+  )
+}
+
 if (use_cache) {
-  cached   <- readRDS(cache_file)
-  res_qtt  <- cached$res_qtt
-  res_att  <- cached$res_att
-  res_cic  <- cached$res_cic
-  res_qdid <- cached$res_qdid
-  res_pqtt <- cached$res_pqtt
-  res_ddid <- cached$res_ddid
-  res_mdid <- cached$res_mdid
-  res_lou  <- cached$res_lou
+  cached <- readRDS(cache_file)
 } else {
-  res_qtt <- cic(
+  cached <- list()
+  cached$res_qtt <- cic(
     yname   = "lemp",
     gname   = "first.treat",
     tname   = "year",
@@ -39,8 +40,7 @@ if (use_cache) {
     gt_type = "qtt",
     probs   = seq(0.1, 0.9, by = 0.1)
   )
-
-  res_att <- cic(
+  cached$res_att <- cic(
     yname   = "lemp",
     gname   = "first.treat",
     tname   = "year",
@@ -49,50 +49,40 @@ if (use_cache) {
     biters  = 100,
     gt_type = "att"
   )
-
-  res_cic <- cic(
-    yname = "lemp", gname = "first.treat", tname = "year",
-    idname = "countyreal", data = mpdta,
-    gt_type = "qtt", probs = 0.5, biters = 100
+  cached$res_cic  <- median_fit(cic)
+  cached$res_qdid <- median_fit(qdid)
+  cached$res_pqtt <- median_fit(panel_qtt)
+  cached$res_ddid <- median_fit(ddid)
+  cached$res_mdid <- median_fit(mdid)
+  cached$res_cdf  <- median_fit(cdf_did)
+  cached$res_lou  <- median_fit(lou_qtt)
+  cached$res_cdf_x <- cdf_did(
+    yname      = "lemp",
+    gname      = "first.treat",
+    tname      = "year",
+    idname     = "countyreal",
+    data       = mpdta,
+    xformula   = ~lpop,
+    est_method = "aipw",
+    biters     = 100,
+    gt_type    = "qtt",
+    probs      = seq(0.1, 0.9, by = 0.1)
   )
-
-  res_qdid <- qdid(
-    yname = "lemp", gname = "first.treat", tname = "year",
-    idname = "countyreal", data = mpdta,
-    gt_type = "qtt", probs = 0.5, biters = 100
+  cached$res_cic_x <- cic(
+    yname     = "lemp",
+    gname     = "first.treat",
+    tname     = "year",
+    idname    = "countyreal",
+    data      = mpdta,
+    xformula  = ~lpop,
+    cond_dist = "dr",
+    biters    = 100,
+    gt_type   = "qtt",
+    probs     = seq(0.1, 0.9, by = 0.1)
   )
-
-  res_pqtt <- panel_qtt(
-    yname = "lemp", gname = "first.treat", tname = "year",
-    idname = "countyreal", data = mpdta,
-    gt_type = "qtt", probs = 0.5, biters = 100
-  )
-
-  res_ddid <- ddid(
-    yname = "lemp", gname = "first.treat", tname = "year",
-    idname = "countyreal", data = mpdta,
-    gt_type = "qtt", probs = 0.5, biters = 100
-  )
-
-  res_mdid <- mdid(
-    yname = "lemp", gname = "first.treat", tname = "year",
-    idname = "countyreal", data = mpdta,
-    gt_type = "qtt", probs = 0.5, biters = 100
-  )
-
-  res_lou <- lou_qtt(
-    yname = "lemp", gname = "first.treat", tname = "year",
-    idname = "countyreal", data = mpdta,
-    gt_type = "qtt", probs = 0.5, biters = 100
-  )
-
-  saveRDS(
-    list(res_qtt = res_qtt, res_att = res_att, res_cic = res_cic,
-         res_qdid = res_qdid, res_pqtt = res_pqtt, res_ddid = res_ddid,
-         res_mdid = res_mdid, res_lou = res_lou),
-    cache_file
-  )
+  saveRDS(cached, cache_file)
 }
+list2env(cached, envir = environment())
 
 
 ## -----------------------------------------------------------------------------
@@ -122,7 +112,7 @@ summary(res_qtt)
 
 ## -----------------------------------------------------------------------------
 #| label: qtt-plot
-#| fig-alt: "Overall QTT curve from cic()"
+#| fig-alt: "Overall QTT curve from cic(), with the overall ATT"
 autoplot(res_qtt)
 
 
@@ -136,6 +126,18 @@ autoplot(res_qtt, type = "dynamic", plot_probs = 0.5)
 #| label: qtt-dynamic-multi
 #| fig-alt: "Event-study plot for multiple quantiles of the QTT"
 autoplot(res_qtt, type = "dynamic", plot_probs = c(0.1, 0.5, 0.9))
+
+
+## -----------------------------------------------------------------------------
+#| label: qtt-group
+#| fig-alt: "Median QTT by treatment cohort"
+autoplot(res_qtt, type = "group", plot_probs = 0.5)
+
+
+## -----------------------------------------------------------------------------
+#| label: qtt-minus-att
+#| fig-alt: "QTT minus ATT across quantiles, with a uniform confidence band"
+autoplot(res_qtt, type = "qtt_minus_att")
 
 
 ## -----------------------------------------------------------------------------
@@ -173,43 +175,17 @@ autoplot(res_att, type = "dynamic")
 #   idname = "countyreal", data = mpdta,
 #   gt_type = "qtt", probs = 0.5, biters = 100
 # )
-# 
-# res_qdid <- qdid(
-#   yname = "lemp", gname = "first.treat", tname = "year",
-#   idname = "countyreal", data = mpdta,
-#   gt_type = "qtt", probs = 0.5, biters = 100
-# )
-# 
-# res_pqtt <- panel_qtt(
-#   yname = "lemp", gname = "first.treat", tname = "year",
-#   idname = "countyreal", data = mpdta,
-#   gt_type = "qtt", probs = 0.5, biters = 100
-# )
-# 
-# res_ddid <- ddid(
-#   yname = "lemp", gname = "first.treat", tname = "year",
-#   idname = "countyreal", data = mpdta,
-#   gt_type = "qtt", probs = 0.5, biters = 100
-# )
-# 
-# res_mdid <- mdid(
-#   yname = "lemp", gname = "first.treat", tname = "year",
-#   idname = "countyreal", data = mpdta,
-#   gt_type = "qtt", probs = 0.5, biters = 100
-# )
-# 
-# res_lou <- lou_qtt(
-#   yname = "lemp", gname = "first.treat", tname = "year",
-#   idname = "countyreal", data = mpdta,
-#   gt_type = "qtt", probs = 0.5, biters = 100
-# )
+# # ... and the same call for qdid(), panel_qtt(), ddid(), mdid(), cdf_did()
+# # and lou_qtt(), saved as res_qdid, res_pqtt, res_ddid, res_mdid, res_cdf
+# # and res_lou
 
 
 ## -----------------------------------------------------------------------------
 #| label: compare-table
 median_qtt <- function(res, label) {
   row <- res$overall[res$overall$probs == 0.5, ]
-  data.frame(estimator = label, qtt = round(row$qtt, 4), se = round(row$se, 4))
+  data.frame(estimator = label, qtt = round(row$qtt, 4), se = round(row$se, 4),
+             att = round(res$att$overall$att, 4))
 }
 
 do.call(rbind, list(
@@ -218,19 +194,63 @@ do.call(rbind, list(
   median_qtt(res_pqtt, "panel_qtt()"),
   median_qtt(res_ddid, "ddid()"),
   median_qtt(res_mdid, "mdid()"),
+  median_qtt(res_cdf,  "cdf_did()"),
   median_qtt(res_lou,  "lou_qtt()")
 ))
+
+
+## -----------------------------------------------------------------------------
+#| label: covariates
+#| eval: false
+# res_cdf_x <- cdf_did(
+#   yname      = "lemp",
+#   gname      = "first.treat",
+#   tname      = "year",
+#   idname     = "countyreal",
+#   data       = mpdta,
+#   xformula   = ~lpop,
+#   est_method = "aipw",
+#   biters     = 100,
+#   gt_type    = "qtt",
+#   probs      = seq(0.1, 0.9, by = 0.1)
+# )
+# 
+# res_cic_x <- cic(
+#   yname     = "lemp",
+#   gname     = "first.treat",
+#   tname     = "year",
+#   idname    = "countyreal",
+#   data      = mpdta,
+#   xformula  = ~lpop,
+#   cond_dist = "dr",
+#   biters    = 100,
+#   gt_type   = "qtt",
+#   probs     = seq(0.1, 0.9, by = 0.1)
+# )
+
+
+## -----------------------------------------------------------------------------
+#| label: covariates-plot-cdf
+#| fig-alt: "Overall QTT curve from cdf_did() with covariates"
+autoplot(res_cdf_x)
+
+
+## -----------------------------------------------------------------------------
+#| label: covariates-plot-cic
+#| fig-alt: "Overall QTT curve from cic() with covariates"
+autoplot(res_cic_x)
 
 
 ## -----------------------------------------------------------------------------
 #| label: rcs-example
 #| eval: false
 # res_rcs <- cic(
-#   yname  = "lemp",
-#   gname  = "first.treat",
-#   tname  = "year",
-#   data   = mpdta,   # no idname
-#   panel  = FALSE,
-#   biters = 100
+#   yname   = "lemp",
+#   gname   = "first.treat",
+#   tname   = "year",
+#   data    = mpdta,   # no idname
+#   panel   = FALSE,
+#   gt_type = "qtt",
+#   biters  = 100
 # )
 

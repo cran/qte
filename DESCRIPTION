@@ -1,6 +1,6 @@
 Package: qte
 Title: Quantile Treatment Effects
-Version: 2.0.0
+Version: 2.1.0
 Authors@R: person("Brantly", "Callaway", email="brantly.callaway@uga.edu",
   	          role=c("aut","cre"))
 Description: Provides several methods for computing the Quantile Treatment
@@ -17,8 +17,8 @@ Description: Provides several methods for computing the Quantile Treatment
     treatment adoption API (built on 'ptetools') for all DiD-based estimators,
     as well as a new lagged-outcome unconfoundedness estimator ('lou_qtt').
 Depends: R (>= 3.5)
-Imports: parallel, quantreg, BMisc, formula.tools, ggplot2, rlang,
-        pbapply, data.table, ptetools (>= 1.0.1)
+Imports: quantreg, BMisc (>= 1.4.11), ggplot2, rlang, pbapply, ptetools
+        (>= 1.1.0)
 URL: https://bcallaway11.github.io/qte/,
         https://github.com/bcallaway11/qte
 BugReports: https://github.com/bcallaway11/qte/issues
@@ -26,11 +26,11 @@ License: GPL-3
 Encoding: UTF-8
 LazyData: true
 VignetteBuilder: knitr, quarto
-Suggests: rmarkdown, knitr, msm, testthat (>= 3.0.0), did, quarto
-Config/roxygen2/version: 8.0.0
+Suggests: rmarkdown, knitr, testthat (>= 3.0.0), did, quarto
+Config/roxygen2/version: 8.1.1
 NeedsCompilation: no
-Packaged: 2026-07-23 02:44:17 UTC; bmc43193
+Packaged: 2026-11-25 03:14:32 UTC; bmc43193
 Author: Brantly Callaway [aut, cre]
 Maintainer: Brantly Callaway <brantly.callaway@uga.edu>
 Repository: CRAN
-Date/Publication: 2026-07-23 10:50:15 UTC
+Date/Publication: 2026-11-25 04:00:21 UTC
